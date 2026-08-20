@@ -1,0 +1,38 @@
+# Environment variables
+.env
+backend/.env
+
+# Python virtual environments
+.venv/
+backend/.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Generated media
+backend/output/*
+!backend/output/.gitkeep
+*.mp4
+*.mp3
+*.wav
+
+# Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Credentials
+.aws/
+*.pem
+*.key
