@@ -11,6 +11,7 @@ from app.schemas.scene import Scene  # noqa: E402
 from app.services.ffmpeg_composer import (  # noqa: E402
     concat_scene_clips,
     create_mock_scene_clip,
+    probe_stream_types,
     probe_video_duration,
 )
 
@@ -40,12 +41,14 @@ def test_create_and_concat_mock_clips() -> None:
             assert clip.is_file()
             assert clip.stat().st_size > 0
             assert abs(probe_video_duration(clip) - scene.duration) < 0.2
+            assert set(probe_stream_types(clip)) == {"video", "audio"}
             clips.append(clip)
 
         final_video = concat_scene_clips(clips, temporary_directory / "final.mp4")
         assert final_video.is_file()
         assert final_video.stat().st_size > 0
         assert abs(probe_video_duration(final_video) - 2.0) < 0.3
+        assert set(probe_stream_types(final_video)) == {"video", "audio"}
     finally:
         shutil.rmtree(temporary_directory, ignore_errors=True)
 

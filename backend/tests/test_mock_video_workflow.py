@@ -7,7 +7,10 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.config import settings  # noqa: E402
-from app.services.ffmpeg_composer import probe_video_duration  # noqa: E402
+from app.services.ffmpeg_composer import (  # noqa: E402
+    probe_stream_types,
+    probe_video_duration,
+)
 from app.workflows.mock_video_workflow import render_mock_video  # noqa: E402
 
 
@@ -28,6 +31,7 @@ def test_render_mock_video() -> None:
         assert final_video.is_file()
         assert final_video.stat().st_size > 0
         assert abs(probe_video_duration(final_video) - 2.0) < 0.3
+        assert set(probe_stream_types(final_video)) == {"video", "audio"}
     finally:
         settings.use_mock_scene_planner = original_mock_setting
         if job_directory is not None:
