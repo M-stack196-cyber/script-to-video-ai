@@ -8,6 +8,9 @@ class Settings(BaseSettings):
 
     bedrock_text_model_id: str = ""
     bedrock_video_model_id: str = ""
+    bedrock_audio_model_id: str = ""
+
+    use_mock_scene_planner: bool = False
 
     s3_bucket_name: str = ""
 
