@@ -1,12 +1,15 @@
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, status
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.schemas.api import (
     ConfigStatusResponse,
     GenerateSceneRequest,
     GenerateSceneResponse,
+    MockRenderResponse,
     VideoPlanRequest,
 )
 from app.schemas.scene import ScenePlan
@@ -15,6 +18,13 @@ from app.services.video_generator import (
     get_video_generation_status,
     start_video_generation,
 )
+from app.workflows.mock_video_workflow import DEMO_OUTPUT_ROOT, render_mock_video
+
+
+BACKEND_ROOT = DEMO_OUTPUT_ROOT.parents[1]
+OUTPUT_ROOT = BACKEND_ROOT / "output"
+STATIC_ROOT = BACKEND_ROOT / "static"
+OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(
     title="Script to Video AI",
@@ -39,6 +49,11 @@ def health():
     }
 
 
+@app.get("/demo", include_in_schema=False)
+def demo_page() -> FileResponse:
+    return FileResponse(STATIC_ROOT / "demo.html")
+
+
 @app.post("/api/video/plan", response_model=ScenePlan)
 def plan_video(request: VideoPlanRequest) -> ScenePlan:
     try:
@@ -59,6 +74,40 @@ def plan_video(request: VideoPlanRequest) -> ScenePlan:
             else status.HTTP_502_BAD_GATEWAY
         )
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+@app.post("/api/video/demo-render", response_model=MockRenderResponse)
+def demo_render(request: VideoPlanRequest) -> MockRenderResponse:
+    if not settings.use_mock_scene_planner:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Local demo rendering requires USE_MOCK_SCENE_PLANNER=true",
+        )
+    try:
+        result = render_mock_video(
+            script=request.script,
+            total_duration=request.duration,
+            aspect_ratio=request.aspect_ratio,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    return MockRenderResponse(
+        job_id=result["job_id"],
+        mode="mock",
+        video_url=f'/output/demo/{result["job_id"]}/final.mp4',
+        scene_count=result["scene_count"],
+        total_duration=result["total_duration"],
+        aspect_ratio=result["aspect_ratio"],
+    )
 
 
 @app.post("/api/video/generate-scene", response_model=GenerateSceneResponse)
@@ -120,3 +169,6 @@ def config_status() -> ConfigStatusResponse:
         s3_configured=bool(settings.s3_bucket_name.strip()),
         mock_scene_planner=settings.use_mock_scene_planner,
     )
+
+
+app.mount("/output", StaticFiles(directory=OUTPUT_ROOT), name="output")

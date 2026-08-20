@@ -1,4 +1,5 @@
 import sys
+import shutil
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -57,8 +58,51 @@ def test_plan_video_with_mock_planner() -> None:
     assert sum(scene["duration"] for scene in scene_plan["scenes"]) == 12
 
 
+def test_demo_render_with_mock_planner() -> None:
+    original_mock_setting = settings.use_mock_scene_planner
+    settings.use_mock_scene_planner = True
+    job_directory = None
+    try:
+        response = client.post(
+            "/api/video/demo-render",
+            json={
+                "script": "A short local-only video demo.",
+                "duration": 1,
+                "aspect_ratio": "1:1",
+            },
+        )
+        assert response.status_code == 200
+        result = response.json()
+        assert result["mode"] == "mock"
+        assert result["scene_count"] == 1
+        assert result["video_url"].endswith("/final.mp4")
+        video_response = client.get(result["video_url"])
+        assert video_response.status_code == 200
+        assert len(video_response.content) > 0
+        job_directory = (BACKEND_ROOT / "output" / result["video_url"].removeprefix("/output/")).parent
+    finally:
+        settings.use_mock_scene_planner = original_mock_setting
+        if job_directory is not None:
+            shutil.rmtree(job_directory, ignore_errors=True)
+
+
+def test_demo_render_rejects_real_mode() -> None:
+    original_mock_setting = settings.use_mock_scene_planner
+    settings.use_mock_scene_planner = False
+    try:
+        response = client.post(
+            "/api/video/demo-render",
+            json={"script": "No fallback", "duration": 1, "aspect_ratio": "1:1"},
+        )
+    finally:
+        settings.use_mock_scene_planner = original_mock_setting
+    assert response.status_code == 503
+
+
 if __name__ == "__main__":
     test_health()
     test_config_status_contains_only_safe_fields()
     test_plan_video_with_mock_planner()
+    test_demo_render_with_mock_planner()
+    test_demo_render_rejects_real_mode()
     print("API tests: SUCCESS")

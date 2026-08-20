@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Script to Video AI</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #10131a; color: #f4f6fb; }
+    main { width: min(720px, calc(100% - 32px)); margin: 48px auto; }
+    .card { background: #1b202b; padding: 24px; border-radius: 16px; box-shadow: 0 16px 50px #0005; }
+    h1 { margin-top: 0; }
+    label { display: block; margin: 16px 0 6px; color: #cbd3e1; }
+    textarea, select, button { box-sizing: border-box; font: inherit; border-radius: 8px; }
+    textarea, select { width: 100%; padding: 10px; color: inherit; background: #11151d; border: 1px solid #3b4557; }
+    textarea { min-height: 130px; resize: vertical; }
+    .options { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    button { width: 100%; margin-top: 20px; padding: 12px; border: 0; background: #7c5cff; color: white; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    #status { min-height: 24px; color: #b9c4d6; }
+    video { display: none; width: 100%; max-height: 65vh; margin-top: 16px; background: #000; border-radius: 10px; }
+  </style>
+</head>
+<body>
+  <main><div class="card">
+    <h1>Script to Video AI</h1>
+    <form id="form">
+      <label for="script">Script</label>
+      <textarea id="script" required>Turn everyday ideas into clear, engaging video stories in seconds.</textarea>
+      <div class="options">
+        <div><label for="duration">Duration</label><select id="duration"><option>6</option><option>12</option><option>18</option></select></div>
+        <div><label for="aspect">Aspect ratio</label><select id="aspect"><option>9:16</option><option>16:9</option><option>1:1</option></select></div>
+      </div>
+      <button id="generate" type="submit">Generate Demo Video</button>
+    </form>
+    <p id="status" role="status"></p>
+    <video id="video" controls></video>
+  </div></main>
+  <script>
+    const form = document.querySelector('#form');
+    const button = document.querySelector('#generate');
+    const status = document.querySelector('#status');
+    const video = document.querySelector('#video');
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      button.disabled = true; video.style.display = 'none'; status.textContent = 'Rendering locally with FFmpeg…';
+      try {
+        const response = await fetch('/api/video/demo-render', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({script: document.querySelector('#script').value, duration: Number(document.querySelector('#duration').value), aspect_ratio: document.querySelector('#aspect').value})
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || 'Render failed');
+        status.textContent = `Created ${result.scene_count} scene(s), ${result.total_duration}s, ${result.aspect_ratio}.`;
+        video.src = result.video_url; video.style.display = 'block'; video.load();
+      } catch (error) { status.textContent = `Error: ${error.message}`; }
+      finally { button.disabled = false; }
+    });
+  </script>
+</body>
+</html>

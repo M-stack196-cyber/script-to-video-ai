@@ -39,3 +39,12 @@ class ConfigStatusResponse(BaseModel):
     audio_model_configured: bool
     s3_configured: bool
     mock_scene_planner: bool
+
+
+class MockRenderResponse(BaseModel):
+    job_id: str
+    mode: Literal["mock"]
+    video_url: str
+    scene_count: int
+    total_duration: int
+    aspect_ratio: Literal["9:16", "16:9", "1:1"]
