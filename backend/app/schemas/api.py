@@ -39,6 +39,9 @@ class ConfigStatusResponse(BaseModel):
     audio_model_configured: bool
     s3_configured: bool
     mock_scene_planner: bool
+    narration_provider: str
+    nova_sonic_sdk_available: bool
+    standard_aws_credentials_detected: bool
 
 
 class MockRenderResponse(BaseModel):

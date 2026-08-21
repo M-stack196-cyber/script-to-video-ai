@@ -56,6 +56,7 @@ class VideoJob(BaseModel):
     duration: int = Field(gt=0)
     aspect_ratio: Literal["9:16", "16:9", "1:1"]
     scenes: list[SceneJob] = Field(default_factory=list)
+    narration_provider: str | None = None
     final_video_url: str | None = None
     error: str | None = None
     created_at: datetime = Field(default_factory=utc_now)

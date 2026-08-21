@@ -15,6 +15,10 @@ from app.schemas.api import (
 )
 from app.schemas.job import VideoJob
 from app.schemas.scene import ScenePlan
+from app.providers.nova_sonic import (
+    nova_sonic_sdk_available,
+    standard_aws_credentials_detected,
+)
 from app.services.scene_generator import generate_scene_plan
 from app.services.job_store import JobNotFoundError, get_job, list_jobs
 from app.services.video_generator import (
@@ -303,6 +307,9 @@ def config_status() -> ConfigStatusResponse:
         audio_model_configured=bool(settings.bedrock_audio_model_id.strip()),
         s3_configured=bool(settings.s3_bucket_name.strip()),
         mock_scene_planner=settings.use_mock_scene_planner,
+        narration_provider=settings.narration_provider,
+        nova_sonic_sdk_available=nova_sonic_sdk_available(),
+        standard_aws_credentials_detected=standard_aws_credentials_detected(),
     )
 
 

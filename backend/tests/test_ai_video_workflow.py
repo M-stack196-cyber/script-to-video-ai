@@ -260,7 +260,7 @@ def test_failed_download_persists_job_failure() -> None:
         shutil.rmtree(temporary_directory, ignore_errors=True)
 
 
-def _write_mock_media(_first, destination: Path, *_rest) -> Path:
+def _write_mock_media(_first, destination: Path, *_rest, **_kwargs) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(b"local-media")
     return destination
@@ -270,8 +270,10 @@ def test_compose_ai_video_job_success() -> None:
     temporary_directory = Path(tempfile.mkdtemp(prefix="ai-compose-"))
     original_directory = job_store.JOB_STORE_DIRECTORY
     original_output_root = media_paths.OUTPUT_ROOT
+    original_provider = settings.narration_provider
     job_store.JOB_STORE_DIRECTORY = temporary_directory / "store"
     media_paths.OUTPUT_ROOT = temporary_directory / "output"
+    settings.narration_provider = "local"
     try:
         job = _create_test_job()
         job.status = VideoJobStatus.VIDEO_READY
@@ -288,7 +290,7 @@ def test_compose_ai_video_job_success() -> None:
             "app.workflows.ai_video_workflow.normalize_video_clip",
             side_effect=_write_mock_media,
         ), patch(
-            "app.workflows.ai_video_workflow.generate_local_narration",
+            "app.workflows.ai_video_workflow.generate_narration",
             side_effect=_write_mock_media,
         ), patch(
             "app.workflows.ai_video_workflow.mux_scene_narration",
@@ -306,12 +308,14 @@ def test_compose_ai_video_job_success() -> None:
         assert job.status == VideoJobStatus.COMPLETED
         assert job.progress == 100
         assert job.message == "Video completed"
+        assert job.narration_provider == "local"
         assert job.final_video_url == (
             f"/output/jobs/{job.job_id}/media/final.mp4"
         )
         final_path = media_paths.final_video_path(job.job_id)
         assert final_path.is_file() and final_path.stat().st_size > 0
     finally:
+        settings.narration_provider = original_provider
         media_paths.OUTPUT_ROOT = original_output_root
         job_store.JOB_STORE_DIRECTORY = original_directory
         shutil.rmtree(temporary_directory, ignore_errors=True)
@@ -355,6 +359,46 @@ def test_compose_invalid_state_and_missing_clip() -> None:
         shutil.rmtree(temporary_directory, ignore_errors=True)
 
 
+def test_nova_sonic_provider_failure_marks_job_failed() -> None:
+    temporary_directory = Path(tempfile.mkdtemp(prefix="ai-nova-audio-failure-"))
+    original_directory = job_store.JOB_STORE_DIRECTORY
+    original_output_root = media_paths.OUTPUT_ROOT
+    original_provider = settings.narration_provider
+    job_store.JOB_STORE_DIRECTORY = temporary_directory / "store"
+    media_paths.OUTPUT_ROOT = temporary_directory / "output"
+    settings.narration_provider = "nova-sonic"
+    try:
+        job = _create_test_job()
+        job.status = VideoJobStatus.VIDEO_READY
+        for scene in job.scenes:
+            scene.status = SceneJobStatus.COMPLETED
+            scene.video_downloaded = True
+            source = media_paths.scene_video_path(job.job_id, scene.scene_number)
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes(b"downloaded-source")
+            scene.local_video_path = media_paths.output_relative_path(source)
+        job_store.update_job(job)
+
+        with patch(
+            "app.providers.nova_sonic.nova_sonic_sdk_available", return_value=False
+        ):
+            try:
+                compose_ai_video_job(job.job_id)
+            except RuntimeError as exc:
+                assert "aws-sdk-bedrock-runtime" in str(exc)
+            else:
+                raise AssertionError("Expected unavailable Nova Sonic provider failure")
+        persisted = job_store.get_job(job.job_id)
+        assert persisted.status == VideoJobStatus.FAILED
+        assert persisted.narration_provider == "nova-sonic"
+        assert "aws-sdk-bedrock-runtime" in (persisted.error or "")
+    finally:
+        settings.narration_provider = original_provider
+        media_paths.OUTPUT_ROOT = original_output_root
+        job_store.JOB_STORE_DIRECTORY = original_directory
+        shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_ai_video_workflow_without_aws()
     test_failed_scene_fails_whole_job()
@@ -364,4 +408,5 @@ if __name__ == "__main__":
     test_failed_download_persists_job_failure()
     test_compose_ai_video_job_success()
     test_compose_invalid_state_and_missing_clip()
+    test_nova_sonic_provider_failure_marks_job_failed()
     print("AI video workflow tests: SUCCESS")

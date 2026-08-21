@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     bedrock_video_model_id: str = ""
     bedrock_audio_model_id: str = ""
 
+    narration_provider: str = "local"
+
     use_mock_scene_planner: bool = False
 
     s3_bucket_name: str = ""

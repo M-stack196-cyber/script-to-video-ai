@@ -34,6 +34,7 @@ def test_json_job_persistence() -> None:
                     overlay_text="Persisted overlay",
                 )
             ],
+            narration_provider="local",
         )
         job_store.create_job(job)
         stored_path = temporary_directory / "test-job.json"
@@ -46,6 +47,7 @@ def test_json_job_persistence() -> None:
         assert loaded.scenes[0].duration == 6.0
         assert loaded.scenes[0].narration == "Persisted narration"
         assert loaded.scenes[0].overlay_text == "Persisted overlay"
+        assert loaded.narration_provider == "local"
         loaded.progress = 50
         loaded.message = "Updated"
         job_store.update_job(loaded)

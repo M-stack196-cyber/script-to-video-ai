@@ -6,6 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.config import settings
+from app.providers.narration import get_narration_provider
 from app.schemas.job import SceneJob, SceneJobStatus, VideoJob, VideoJobStatus
 from app.services.job_store import create_job, get_job, update_job
 from app.services.media_paths import (
@@ -19,7 +20,7 @@ from app.services.media_paths import (
 )
 from app.services.production_composer import (
     concat_production_scenes,
-    generate_local_narration,
+    generate_narration,
     mux_scene_narration,
     normalize_video_clip,
 )
@@ -251,14 +252,19 @@ def compose_ai_video_job(job_id: str) -> VideoJob:
     if any(not (scene.narration or "").strip() for scene in job.scenes):
         raise ValueError("Every scene requires narration before composition")
 
-    job.status = VideoJobStatus.COMPOSING
-    job.message = "Composing final video"
+    provider_name = settings.narration_provider.strip().lower()
+    job.narration_provider = provider_name
+    job.status = VideoJobStatus.GENERATING_AUDIO
+    job.message = f"Generating narration with {provider_name} provider"
     job.error = None
     update_job(job)
 
-    composed_paths = []
+    ordered_scenes = sorted(job.scenes, key=lambda item: item.scene_number)
+    source_paths = {}
+    narration_paths = {}
     try:
-        for scene in sorted(job.scenes, key=lambda item: item.scene_number):
+        provider = get_narration_provider()
+        for scene in ordered_scenes:
             if not scene.local_video_path:
                 raise RuntimeError(
                     f"Downloaded video path is missing for scene {scene.scene_number}"
@@ -269,19 +275,35 @@ def compose_ai_video_job(job_id: str) -> VideoJob:
                     f"Downloaded video is missing or empty for scene {scene.scene_number}"
                 )
             duration = float(scene.duration or 0)
+            source_paths[scene.scene_number] = source
+            narration_paths[scene.scene_number] = generate_narration(
+                scene.narration or "",
+                scene_audio_path(job.job_id, scene.scene_number),
+                duration=duration,
+                provider=provider,
+            )
+            job.message = (
+                f"Generated narration for scene {scene.scene_number} "
+                f"of {len(job.scenes)}"
+            )
+            update_job(job)
+
+        job.status = VideoJobStatus.COMPOSING
+        job.message = "Composing final video"
+        update_job(job)
+
+        composed_paths = []
+        for scene in ordered_scenes:
+            duration = float(scene.duration or 0)
             normalized = normalize_video_clip(
-                source,
+                source_paths[scene.scene_number],
                 scene_normalized_video_path(job.job_id, scene.scene_number),
                 duration,
                 job.aspect_ratio,
             )
-            narration = generate_local_narration(
-                scene.narration or "",
-                scene_audio_path(job.job_id, scene.scene_number),
-            )
             composed = mux_scene_narration(
                 normalized,
-                narration,
+                narration_paths[scene.scene_number],
                 scene_composed_path(job.job_id, scene.scene_number),
                 duration,
             )
@@ -295,8 +317,13 @@ def compose_ai_video_job(job_id: str) -> VideoJob:
         )
         relative_final_path = output_relative_path(final_path)
     except Exception as exc:
+        failed_during_audio = job.status == VideoJobStatus.GENERATING_AUDIO
         job.status = VideoJobStatus.FAILED
-        job.message = "Video composition failed"
+        job.message = (
+            f"Narration generation with {provider_name} failed"
+            if failed_during_audio
+            else "Video composition failed"
+        )
         job.error = str(exc)
         update_job(job)
         if isinstance(exc, RuntimeError):

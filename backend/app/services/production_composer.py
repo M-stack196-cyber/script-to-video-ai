@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from app.providers.narration import (
+    LocalEspeakNarrationProvider,
+    NarrationProvider,
+    get_narration_provider,
+)
+
 
 VIDEO_DIMENSIONS = {
     "9:16": (720, 1280),
@@ -20,7 +26,7 @@ VIDEO_DIMENSIONS = {
 def check_media_tools() -> None:
     missing = [
         executable
-        for executable in ("ffmpeg", "ffprobe", "espeak-ng")
+        for executable in ("ffmpeg", "ffprobe")
         if shutil.which(executable) is None
     ]
     if missing:
@@ -160,34 +166,27 @@ def normalize_video_clip(
     return destination
 
 
+def generate_narration(
+    narration: str,
+    destination_wav: Path,
+    duration: float | None = None,
+    provider: NarrationProvider | None = None,
+) -> Path:
+    selected_provider = provider or get_narration_provider()
+    return selected_provider.synthesize(
+        narration,
+        Path(destination_wav),
+        duration=duration,
+    )
+
+
 def generate_local_narration(narration: str, destination_wav: Path) -> Path:
-    check_media_tools()
-    if not narration.strip():
-        raise ValueError("Narration cannot be empty")
-    destination = Path(destination_wav)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    partial = _partial_path(destination, ".wav")
-    executable = shutil.which("espeak-ng")
-    if executable is None:
-        raise RuntimeError("Local fallback narration requires espeak-ng")
-    try:
-        command = [
-            executable,
-            "-w",
-            str(partial),
-            "-s",
-            "155",
-            "-a",
-            "175",
-            "--",
-            narration.strip(),
-        ]
-        _run(command, "generating local fallback narration", "espeak-ng")
-        _require_nonempty_file(partial, "Narration WAV")
-        partial.replace(destination)
-    finally:
-        partial.unlink(missing_ok=True)
-    return destination
+    """Backward-compatible explicit local narration helper."""
+    return generate_narration(
+        narration,
+        destination_wav,
+        provider=LocalEspeakNarrationProvider(),
+    )
 
 
 def mux_scene_narration(

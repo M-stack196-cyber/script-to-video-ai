@@ -37,6 +37,9 @@ def test_config_status_contains_only_safe_fields() -> None:
         "audio_model_configured",
         "s3_configured",
         "mock_scene_planner",
+        "narration_provider",
+        "nova_sonic_sdk_available",
+        "standard_aws_credentials_detected",
     }
 
 
@@ -129,9 +132,11 @@ def test_job_api_without_aws() -> None:
     original_directory = job_store.JOB_STORE_DIRECTORY
     original_output_root = media_paths.OUTPUT_ROOT
     original_bucket = settings.s3_bucket_name
+    original_provider = settings.narration_provider
     job_store.JOB_STORE_DIRECTORY = temporary_directory
     media_paths.OUTPUT_ROOT = temporary_directory / "output"
     settings.s3_bucket_name = ""
+    settings.narration_provider = "local"
     try:
         with patch(
             "app.workflows.ai_video_workflow.generate_scene_plan",
@@ -202,7 +207,7 @@ def test_job_api_without_aws() -> None:
         assert downloaded_job["scenes"][0]["video_downloaded"] is True
         assert not Path(downloaded_job["scenes"][0]["local_video_path"]).is_absolute()
 
-        def mocked_media(_first, destination: Path, *_rest) -> Path:
+        def mocked_media(_first, destination: Path, *_rest, **_kwargs) -> Path:
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(b"mock-composed-media")
             return destination
@@ -211,7 +216,7 @@ def test_job_api_without_aws() -> None:
             "app.workflows.ai_video_workflow.normalize_video_clip",
             side_effect=mocked_media,
         ), patch(
-            "app.workflows.ai_video_workflow.generate_local_narration",
+            "app.workflows.ai_video_workflow.generate_narration",
             side_effect=mocked_media,
         ), patch(
             "app.workflows.ai_video_workflow.mux_scene_narration",
@@ -230,6 +235,7 @@ def test_job_api_without_aws() -> None:
         assert composed_job["final_video_url"].endswith("/media/final.mp4")
     finally:
         settings.s3_bucket_name = original_bucket
+        settings.narration_provider = original_provider
         media_paths.OUTPUT_ROOT = original_output_root
         job_store.JOB_STORE_DIRECTORY = original_directory
         shutil.rmtree(temporary_directory, ignore_errors=True)
