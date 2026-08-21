@@ -24,6 +24,7 @@ from app.services.video_generator import (
 from app.workflows.mock_video_workflow import DEMO_OUTPUT_ROOT, render_mock_video
 from app.workflows.ai_video_workflow import (
     create_ai_video_job,
+    download_completed_scene_videos,
     refresh_video_job,
     submit_video_scenes,
 )
@@ -184,6 +185,27 @@ def submit_video_job(job_id: str) -> VideoJob:
 def refresh_video_job_status(job_id: str) -> VideoJob:
     try:
         return refresh_video_job(job_id)
+    except JobNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/api/jobs/{job_id}/download-video", response_model=VideoJob)
+def download_video_job(job_id: str) -> VideoJob:
+    try:
+        return download_completed_scene_videos(job_id)
     except JobNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

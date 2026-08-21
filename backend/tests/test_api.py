@@ -12,8 +12,9 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
+from app.schemas.job import SceneJobStatus, VideoJobStatus  # noqa: E402
 from app.schemas.scene import Scene, ScenePlan  # noqa: E402
-from app.services import job_store  # noqa: E402
+from app.services import job_store, media_paths  # noqa: E402
 
 
 client = TestClient(app)
@@ -126,8 +127,10 @@ def _api_scene_plan() -> ScenePlan:
 def test_job_api_without_aws() -> None:
     temporary_directory = Path(tempfile.mkdtemp(prefix="job-api-"))
     original_directory = job_store.JOB_STORE_DIRECTORY
+    original_output_root = media_paths.OUTPUT_ROOT
     original_bucket = settings.s3_bucket_name
     job_store.JOB_STORE_DIRECTORY = temporary_directory
+    media_paths.OUTPUT_ROOT = temporary_directory / "output"
     settings.s3_bucket_name = ""
     try:
         with patch(
@@ -160,8 +163,42 @@ def test_job_api_without_aws() -> None:
 
         unknown_response = client.get("/api/jobs/unknown-job")
         assert unknown_response.status_code == 404
+
+        unknown_download = client.post("/api/jobs/unknown-job/download-video")
+        assert unknown_download.status_code == 404
+
+        invalid_download = client.post(f'/api/jobs/{job["job_id"]}/download-video')
+        assert invalid_download.status_code == 409
+
+        stored_job = job_store.get_job(job["job_id"])
+        stored_job.status = VideoJobStatus.VIDEO_READY
+        stored_job.scenes[0].status = SceneJobStatus.COMPLETED
+        stored_job.scenes[0].output_s3_uri = "s3://mock-output/job-prefix/"
+        job_store.update_job(stored_job)
+
+        def mocked_download(_uri: str, destination: Path) -> Path:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(b"mock-api-video")
+            return destination
+
+        with patch(
+            "app.workflows.ai_video_workflow.find_generated_video_object",
+            return_value="s3://mock-output/job-prefix/final.mp4",
+        ), patch(
+            "app.workflows.ai_video_workflow.download_s3_video",
+            side_effect=mocked_download,
+        ):
+            download_response = client.post(
+                f'/api/jobs/{job["job_id"]}/download-video'
+            )
+        assert download_response.status_code == 200
+        downloaded_job = download_response.json()
+        assert downloaded_job["status"] == "video_ready"
+        assert downloaded_job["scenes"][0]["video_downloaded"] is True
+        assert not Path(downloaded_job["scenes"][0]["local_video_path"]).is_absolute()
     finally:
         settings.s3_bucket_name = original_bucket
+        media_paths.OUTPUT_ROOT = original_output_root
         job_store.JOB_STORE_DIRECTORY = original_directory
         shutil.rmtree(temporary_directory, ignore_errors=True)
 

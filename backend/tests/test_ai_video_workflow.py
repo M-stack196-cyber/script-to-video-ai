@@ -11,9 +11,10 @@ sys.path.insert(0, str(BACKEND_ROOT))
 from app.config import settings  # noqa: E402
 from app.schemas.job import SceneJobStatus, VideoJobStatus  # noqa: E402
 from app.schemas.scene import Scene, ScenePlan  # noqa: E402
-from app.services import job_store  # noqa: E402
+from app.services import job_store, media_paths  # noqa: E402
 from app.workflows.ai_video_workflow import (  # noqa: E402
     create_ai_video_job,
+    download_completed_scene_videos,
     refresh_video_job,
     submit_video_scenes,
 )
@@ -170,9 +171,94 @@ def test_missing_s3_prevents_submission() -> None:
         settings.s3_bucket_name = original_bucket
 
 
+def test_download_two_completed_scenes_and_skip_existing() -> None:
+    temporary_directory = Path(tempfile.mkdtemp(prefix="ai-download-"))
+    original_directory = job_store.JOB_STORE_DIRECTORY
+    original_output_root = media_paths.OUTPUT_ROOT
+    job_store.JOB_STORE_DIRECTORY = temporary_directory / "store"
+    media_paths.OUTPUT_ROOT = temporary_directory / "output"
+    try:
+        job = _create_test_job()
+        job.status = VideoJobStatus.VIDEO_READY
+        for scene in job.scenes:
+            scene.status = SceneJobStatus.COMPLETED
+            scene.output_s3_uri = f"s3://mock/prefix-{scene.scene_number}/"
+
+        existing = media_paths.scene_video_path(job.job_id, 1)
+        existing.parent.mkdir(parents=True, exist_ok=True)
+        existing.write_bytes(b"existing-video")
+        job.scenes[0].local_video_path = media_paths.output_relative_path(existing)
+        job_store.update_job(job)
+
+        def mocked_download(_uri: str, destination: Path) -> Path:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(b"downloaded-video")
+            return destination
+
+        with patch(
+            "app.workflows.ai_video_workflow.find_generated_video_object",
+            return_value="s3://mock/final.mp4",
+        ) as find_object, patch(
+            "app.workflows.ai_video_workflow.download_s3_video",
+            side_effect=mocked_download,
+        ) as download:
+            job = download_completed_scene_videos(job.job_id)
+
+        assert find_object.call_count == 1
+        assert download.call_count == 1
+        assert job.status == VideoJobStatus.VIDEO_READY
+        assert job.message == "All AI scene clips are downloaded locally"
+        assert all(scene.video_downloaded for scene in job.scenes)
+        assert all(scene.local_video_path for scene in job.scenes)
+        assert not Path(job.scenes[1].local_video_path or "").is_absolute()
+        downloaded = media_paths.resolve_output_path(job.scenes[1].local_video_path or "")
+        assert downloaded.read_bytes() == b"downloaded-video"
+    finally:
+        media_paths.OUTPUT_ROOT = original_output_root
+        job_store.JOB_STORE_DIRECTORY = original_directory
+        shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
+def test_failed_download_persists_job_failure() -> None:
+    temporary_directory = Path(tempfile.mkdtemp(prefix="ai-download-failure-"))
+    original_directory = job_store.JOB_STORE_DIRECTORY
+    original_output_root = media_paths.OUTPUT_ROOT
+    job_store.JOB_STORE_DIRECTORY = temporary_directory / "store"
+    media_paths.OUTPUT_ROOT = temporary_directory / "output"
+    try:
+        job = _create_test_job()
+        job.status = VideoJobStatus.VIDEO_READY
+        for scene in job.scenes:
+            scene.status = SceneJobStatus.COMPLETED
+            scene.output_s3_uri = f"s3://mock/prefix-{scene.scene_number}/"
+        job_store.update_job(job)
+
+        with patch(
+            "app.workflows.ai_video_workflow.find_generated_video_object",
+            side_effect=RuntimeError("Mock S3 listing failure"),
+        ), patch("app.workflows.ai_video_workflow.download_s3_video") as download:
+            try:
+                download_completed_scene_videos(job.job_id)
+            except RuntimeError as exc:
+                assert "Mock S3 listing failure" in str(exc)
+            else:
+                raise AssertionError("Expected mocked download failure")
+        download.assert_not_called()
+        persisted = job_store.get_job(job.job_id)
+        assert persisted.status == VideoJobStatus.FAILED
+        assert persisted.scenes[0].video_downloaded is False
+        assert "Mock S3 listing failure" in (persisted.scenes[0].error or "")
+    finally:
+        media_paths.OUTPUT_ROOT = original_output_root
+        job_store.JOB_STORE_DIRECTORY = original_directory
+        shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_ai_video_workflow_without_aws()
     test_failed_scene_fails_whole_job()
     test_submission_failure_is_persisted()
     test_missing_s3_prevents_submission()
+    test_download_two_completed_scenes_and_skip_existing()
+    test_failed_download_persists_job_failure()
     print("AI video workflow tests: SUCCESS")

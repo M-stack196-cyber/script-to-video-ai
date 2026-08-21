@@ -38,6 +38,8 @@ class SceneJob(BaseModel):
     invocation_arn: str | None = None
     status: SceneJobStatus = SceneJobStatus.QUEUED
     output_s3_uri: str | None = None
+    local_video_path: str | None = None
+    video_downloaded: bool = False
     error: str | None = None
 
 
