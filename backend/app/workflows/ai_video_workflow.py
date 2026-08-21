@@ -12,6 +12,7 @@ from app.services.job_store import create_job, get_job, update_job
 from app.services.media_paths import (
     final_video_path,
     output_relative_path,
+    output_public_url,
     resolve_output_path,
     scene_audio_path,
     scene_composed_path,
@@ -330,7 +331,7 @@ def compose_ai_video_job(job_id: str) -> VideoJob:
             raise
         raise RuntimeError(str(exc)) from exc
 
-    job.final_video_url = f"/output/{relative_final_path}"
+    job.final_video_url = output_public_url(relative_final_path)
     job.status = VideoJobStatus.COMPLETED
     job.progress = 100
     job.message = "Video completed"

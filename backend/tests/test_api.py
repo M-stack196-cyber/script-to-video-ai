@@ -93,6 +93,7 @@ def test_config_status_contains_only_safe_fields() -> None:
     assert set(response.json()) == {
         "app_env",
         "job_store_provider",
+        "media_storage_provider",
         "production_storage_ready",
         "local_media_enabled",
         "text_model_configured",
@@ -165,6 +166,7 @@ def test_production_readiness_reports_local_storage_and_missing_s3() -> None:
     assert payload["local_demo_available"] is False
     assert "S3 bucket is not configured" in payload["blockers"]
     assert "Local job storage is not durable in production" in payload["blockers"]
+    assert "Local media storage is not durable in production" in payload["blockers"]
 
 
 def test_deployment_readiness_does_not_expose_secret_values() -> None:

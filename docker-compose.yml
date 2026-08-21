@@ -6,6 +6,8 @@ services:
       - "8000:8000"
     environment:
       APP_ENV: development
+      JOB_STORE_PROVIDER: local
+      MEDIA_STORAGE_PROVIDER: local
       USE_MOCK_SCENE_PLANNER: "true"
       NARRATION_PROVIDER: local
       CORS_ORIGINS: http://localhost:5173

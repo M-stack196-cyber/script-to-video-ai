@@ -57,9 +57,12 @@ def get_deployment_readiness() -> DeploymentReadinessResponse:
         else:
             block("Production durable job storage is not implemented")
 
-    media_storage_ready = settings.local_media_enabled
+    media_storage_ready = settings.production_media_storage_ready
     if production and not media_storage_ready:
-        block("Production durable media storage is not implemented")
+        if settings.normalized_media_storage_provider == "local":
+            block("Local media storage is not durable in production")
+        else:
+            block("Production durable media storage is not implemented")
 
     provider = settings.narration_provider.strip().lower()
     if provider == "local":

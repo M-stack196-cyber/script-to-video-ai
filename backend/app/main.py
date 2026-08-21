@@ -397,6 +397,7 @@ def config_status() -> ConfigStatusResponse:
     return ConfigStatusResponse(
         app_env=settings.normalized_app_env,
         job_store_provider=settings.normalized_job_store_provider,
+        media_storage_provider=settings.normalized_media_storage_provider,
         production_storage_ready=settings.production_storage_ready,
         local_media_enabled=settings.local_media_enabled,
         text_model_configured=bool(settings.bedrock_text_model_id.strip()),

@@ -36,6 +36,7 @@ class GenerateSceneResponse(BaseModel):
 class ConfigStatusResponse(BaseModel):
     app_env: str
     job_store_provider: str
+    media_storage_provider: str
     production_storage_ready: bool
     local_media_enabled: bool
     text_model_configured: bool

@@ -25,6 +25,10 @@ def render_mock_video(
             "Local demo rendering requires USE_MOCK_SCENE_PLANNER=true; "
             "real generation is never switched to mock mode automatically"
         )
+    if settings.normalized_media_storage_provider != "local":
+        raise RuntimeError(
+            "Local demo rendering requires MEDIA_STORAGE_PROVIDER=local"
+        )
 
     scene_plan = generate_scene_plan(script, total_duration, aspect_ratio)
     job_id = uuid4().hex

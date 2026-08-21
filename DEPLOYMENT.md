@@ -28,6 +28,13 @@ A production backend requires:
 - standard AWS credentials/IAM authentication for Nova Sonic
 - explicit environment configuration, including `APP_ENV=production`, `PUBLIC_BASE_URL`, `CORS_ORIGINS`, and provider/model settings
 
+Storage providers are configured independently:
+
+- `JOB_STORE_PROVIDER=local` persists job JSON beneath `output/jobs`.
+- `MEDIA_STORAGE_PROVIDER=local` stores generated and downloaded media beneath `output`.
+
+The local implementations are intended for development and testing only. Their interfaces allow future durable providers, but no S3, DynamoDB, or other remote job/media storage provider is implemented yet. Unsupported provider values fail explicitly and never fall back to local storage.
+
 The backend exposes `GET /api/deployment/readiness` for safe, non-networked configuration checks. It returns booleans and blocker messages only; it does not return secrets or verify AWS permissions by making cloud calls.
 
 ## Docker backend
@@ -60,6 +67,7 @@ docker run --rm -p 8000:8000 \
   -e APP_ENV=production \
   -e PUBLIC_BASE_URL=https://<backend-domain> \
   -e JOB_STORE_PROVIDER=local \
+  -e MEDIA_STORAGE_PROVIDER=local \
   -e CORS_ORIGINS=https://<frontend-domain> \
   -e AWS_REGION=<aws-region> \
   -e BEDROCK_TEXT_MODEL_ID=<text-model-id> \
@@ -74,7 +82,7 @@ AWS credentials or Bedrock bearer tokens must also be injected by the hosting pl
 
 Container-local `/app/output` is ephemeral unless a volume or external storage is configured. The root `docker-compose.yml` mounts a named volume for local QA, but this is not the production durable job/media store. Docker supplies the FFmpeg runtime only; it does not configure AWS permissions, S3, Nova services, or durable production storage. `espeak-ng` is exclusively the local-demo narration fallback.
 
-Supported runtime configuration includes `APP_ENV`, `PUBLIC_BASE_URL`, `JOB_STORE_PROVIDER`, `CORS_ORIGINS`, `AWS_REGION`, `AWS_BEARER_TOKEN_BEDROCK`, `BEDROCK_TEXT_MODEL_ID`, `BEDROCK_VIDEO_MODEL_ID`, `BEDROCK_AUDIO_MODEL_ID`, `USE_MOCK_SCENE_PLANNER`, `S3_BUCKET_NAME`, and `NARRATION_PROVIDER`.
+Supported runtime configuration includes `APP_ENV`, `PUBLIC_BASE_URL`, `JOB_STORE_PROVIDER`, `MEDIA_STORAGE_PROVIDER`, `CORS_ORIGINS`, `AWS_REGION`, `AWS_BEARER_TOKEN_BEDROCK`, `BEDROCK_TEXT_MODEL_ID`, `BEDROCK_VIDEO_MODEL_ID`, `BEDROCK_AUDIO_MODEL_ID`, `USE_MOCK_SCENE_PLANNER`, `S3_BUCKET_NAME`, and `NARRATION_PROVIDER`.
 
 ## Current production blockers
 
@@ -90,4 +98,4 @@ The API remains available when production storage is incomplete so health, confi
 
 ## Local verified path
 
-The local mock path is separate: the FastAPI `/demo` page uses the mock scene planner, FFmpeg-generated visuals, and local `espeak-ng` narration. It writes jobs and media beneath `backend/output`. Run it only for local development with `APP_ENV=development`, `JOB_STORE_PROVIDER=local`, and `USE_MOCK_SCENE_PLANNER=true`.
+The local mock path is separate: the FastAPI `/demo` page uses the mock scene planner, FFmpeg-generated visuals, and local `espeak-ng` narration. It writes jobs and media beneath `backend/output`. Run it only for local development with `APP_ENV=development`, `JOB_STORE_PROVIDER=local`, `MEDIA_STORAGE_PROVIDER=local`, and `USE_MOCK_SCENE_PLANNER=true`.

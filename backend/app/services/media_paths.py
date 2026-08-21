@@ -1,67 +1,52 @@
-"""Portable local output paths for persisted video job media."""
+"""Backward-compatible media helpers backed by the configured provider."""
 
-from __future__ import annotations
-
-import re
 from pathlib import Path
 
+from app.storage.media_storage import DEFAULT_OUTPUT_ROOT, get_media_storage
 
-OUTPUT_ROOT = Path(__file__).resolve().parents[2] / "output"
-_SAFE_JOB_ID = re.compile(r"^[A-Za-z0-9_-]+$")
+
+OUTPUT_ROOT = DEFAULT_OUTPUT_ROOT
+
+
+def _storage():
+    return get_media_storage(Path(OUTPUT_ROOT))
 
 
 def validate_job_id(job_id: str) -> str:
-    if not job_id or not _SAFE_JOB_ID.fullmatch(job_id):
-        raise ValueError("job_id must contain only letters, numbers, hyphens, or underscores")
-    return job_id
+    return _storage().validate_job_id(job_id)
 
 
 def job_media_directory(job_id: str) -> Path:
-    return OUTPUT_ROOT / "jobs" / validate_job_id(job_id) / "media"
+    return _storage().job_media_directory(job_id)
 
 
 def scene_video_path(job_id: str, scene_number: int) -> Path:
-    if scene_number < 1:
-        raise ValueError("scene_number must be greater than zero")
-    return job_media_directory(job_id) / f"scene_{scene_number:03d}.mp4"
+    return _storage().scene_video_path(job_id, scene_number)
 
 
 def scene_normalized_video_path(job_id: str, scene_number: int) -> Path:
-    if scene_number < 1:
-        raise ValueError("scene_number must be greater than zero")
-    return job_media_directory(job_id) / f"scene_{scene_number:03d}_normalized.mp4"
+    return _storage().scene_normalized_video_path(job_id, scene_number)
 
 
 def scene_audio_path(job_id: str, scene_number: int) -> Path:
-    if scene_number < 1:
-        raise ValueError("scene_number must be greater than zero")
-    return job_media_directory(job_id) / f"scene_{scene_number:03d}_narration.wav"
+    return _storage().scene_audio_path(job_id, scene_number)
 
 
 def scene_composed_path(job_id: str, scene_number: int) -> Path:
-    if scene_number < 1:
-        raise ValueError("scene_number must be greater than zero")
-    return job_media_directory(job_id) / f"scene_{scene_number:03d}_composed.mp4"
+    return _storage().scene_composed_path(job_id, scene_number)
 
 
 def final_video_path(job_id: str) -> Path:
-    return job_media_directory(job_id) / "final.mp4"
+    return _storage().final_video_path(job_id)
 
 
 def output_relative_path(path: str | Path) -> str:
-    candidate = Path(path).resolve()
-    try:
-        return candidate.relative_to(OUTPUT_ROOT.resolve()).as_posix()
-    except ValueError as exc:
-        raise ValueError("Media path must be inside the backend output directory") from exc
+    return _storage().stored_reference(path)
 
 
 def resolve_output_path(relative_path: str) -> Path:
-    if not relative_path or Path(relative_path).is_absolute():
-        raise ValueError("Stored media path must be relative to the backend output directory")
-    candidate = (OUTPUT_ROOT / relative_path).resolve()
-    try:
-        candidate.relative_to(OUTPUT_ROOT.resolve())
-    except ValueError as exc:
-        raise ValueError("Stored media path escapes the backend output directory") from exc
-    return candidate
+    return _storage().resolve_reference(relative_path)
+
+
+def output_public_url(relative_path: str) -> str:
+    return _storage().public_url(relative_path)
