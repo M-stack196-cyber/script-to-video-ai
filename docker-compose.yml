@@ -1,0 +1,16 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: development
+      USE_MOCK_SCENE_PLANNER: "true"
+      NARRATION_PROVIDER: local
+      CORS_ORIGINS: http://localhost:5173
+    volumes:
+      - backend-output:/app/output
+
+volumes:
+  backend-output:
