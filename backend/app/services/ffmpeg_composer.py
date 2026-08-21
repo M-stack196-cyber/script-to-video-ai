@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import textwrap
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.schemas.scene import Scene
@@ -18,6 +19,49 @@ VIDEO_DIMENSIONS = {
 
 REGULAR_FONT = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
 BOLD_FONT = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+
+
+@dataclass(frozen=True)
+class OverlayTextLayout:
+    font_size: int
+    wrap_width: int
+    box_border_width: int
+    horizontal_margin: int
+    max_text_width: int
+
+
+def get_overlay_text_layout(aspect_ratio: str) -> OverlayTextLayout:
+    """Calculate conservative overlay dimensions for a supported frame."""
+    if aspect_ratio not in VIDEO_DIMENSIONS:
+        raise ValueError(f"Unsupported aspect ratio: {aspect_ratio}")
+    frame_width, _ = VIDEO_DIMENSIONS[aspect_ratio]
+    font_size = max(38, min(48, round(frame_width * 0.056)))
+    box_border_width = 20 if frame_width == 720 else 24
+    horizontal_margin = round(frame_width * 0.12)
+    # Reserve 12% margins plus the drawtext box border on both sides.
+    max_text_width = frame_width - (2 * horizontal_margin) - (box_border_width * 2)
+    average_glyph_width = font_size * 0.62
+    wrap_width = max(12, int(max_text_width / average_glyph_width))
+    return OverlayTextLayout(
+        font_size=font_size,
+        wrap_width=wrap_width,
+        box_border_width=box_border_width,
+        horizontal_margin=horizontal_margin,
+        max_text_width=max_text_width,
+    )
+
+
+def wrap_overlay_text(text: str, aspect_ratio: str) -> str:
+    """Wrap overlay copy to the conservative width for its target frame."""
+    layout = get_overlay_text_layout(aspect_ratio)
+    return "\n".join(
+        textwrap.wrap(
+            " ".join(text.split()),
+            width=layout.wrap_width,
+            break_long_words=True,
+            break_on_hyphens=True,
+        )
+    )
 
 
 def check_ffmpeg_available() -> None:
@@ -60,13 +104,16 @@ def _escape_filter_path(path: Path) -> str:
     return str(path.resolve()).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
 
 
-def _write_scene_text_files(scene: Scene, directory: Path, width: int) -> tuple[Path, Path]:
+def _write_scene_text_files(
+    scene: Scene,
+    directory: Path,
+    aspect_ratio: str,
+) -> tuple[Path, Path]:
     scene_text_path = directory / f".scene-{scene.scene_number:03d}-label.txt"
     overlay_path = directory / f".scene-{scene.scene_number:03d}-overlay.txt"
     scene_text_path.write_text(f"SCENE {scene.scene_number}\n", encoding="utf-8")
-    wrap_width = 25 if width == 720 else 38
     overlay = scene.overlay_text.strip() or scene.narration.strip() or f"Scene {scene.scene_number}"
-    wrapped_overlay = "\n".join(textwrap.wrap(overlay, width=wrap_width))
+    wrapped_overlay = wrap_overlay_text(overlay, aspect_ratio)
     overlay_path.write_text(wrapped_overlay + "\n", encoding="utf-8")
     return scene_text_path, overlay_path
 
@@ -121,7 +168,7 @@ def create_mock_scene_clip(
     video_filter = f"color=c=0x{color}:s={width}x{height}:r=24:d={duration}"
     narration_path = destination.parent / f".scene-{scene.scene_number:03d}-narration.wav"
     scene_text_path, overlay_path = _write_scene_text_files(
-        scene, destination.parent, width
+        scene, destination.parent, aspect_ratio
     )
     temporary_paths = (narration_path, scene_text_path, overlay_path)
     try:
@@ -129,7 +176,10 @@ def create_mock_scene_clip(
         fade_duration = min(0.35, scene.duration / 3)
         fade_out_start = max(0.0, scene.duration - fade_duration)
         scene_font_size = max(22, round(height / 34))
-        overlay_font_size = max(36, round(min(width, height) / 13))
+        overlay_layout = get_overlay_text_layout(aspect_ratio)
+        safe_text_edge = (
+            overlay_layout.horizontal_margin + overlay_layout.box_border_width
+        )
         filter_chain = ",".join(
             [
                 # Layered translucent shapes and a vignette give each palette
@@ -146,9 +196,11 @@ def create_mock_scene_clip(
                 (
                     f"drawtext=fontfile='{_escape_filter_path(BOLD_FONT)}':"
                     f"textfile='{_escape_filter_path(overlay_path)}':expansion=none:"
-                    f"fontsize={overlay_font_size}:fontcolor=white:line_spacing=12:"
-                    "box=1:boxcolor=black@0.34:boxborderw=24:"
-                    "x=(w-text_w)/2:y=(h-text_h)/2"
+                    f"fontsize={overlay_layout.font_size}:fontcolor=white:line_spacing=12:"
+                    "box=1:boxcolor=black@0.34:"
+                    f"boxborderw={overlay_layout.box_border_width}:"
+                    f"x=max({safe_text_edge}\\,min(w-text_w-{safe_text_edge}\\,"
+                    "(w-text_w)/2)):y=(h-text_h)/2"
                 ),
                 f"fade=t=in:st=0:d={fade_duration:.3f}",
                 f"fade=t=out:st={fade_out_start:.3f}:d={fade_duration:.3f}",

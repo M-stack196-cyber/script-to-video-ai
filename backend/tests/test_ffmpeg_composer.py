@@ -11,8 +11,10 @@ from app.schemas.scene import Scene  # noqa: E402
 from app.services.ffmpeg_composer import (  # noqa: E402
     concat_scene_clips,
     create_mock_scene_clip,
+    get_overlay_text_layout,
     probe_stream_types,
     probe_video_duration,
+    wrap_overlay_text,
 )
 
 
@@ -53,6 +55,37 @@ def test_create_and_concat_mock_clips() -> None:
         shutil.rmtree(temporary_directory, ignore_errors=True)
 
 
+def test_overlay_layout_wraps_safely_for_all_aspect_ratios() -> None:
+    overlay = (
+        "Tired of paying too much for tools that should make everyday work simpler?"
+    )
+    expected_widths = {"9:16": 720, "16:9": 1280, "1:1": 720}
+    wrapped_lines: dict[str, list[str]] = {}
+
+    for aspect_ratio, frame_width in expected_widths.items():
+        layout = get_overlay_text_layout(aspect_ratio)
+        lines = wrap_overlay_text(overlay, aspect_ratio).splitlines()
+        wrapped_lines[aspect_ratio] = lines
+        assert lines
+        assert all(len(line) <= layout.wrap_width for line in lines)
+        estimated_widest_line = (
+            max(len(line) for line in lines) * layout.font_size * 0.62
+        )
+        estimated_box_width = estimated_widest_line + (2 * layout.box_border_width)
+        assert estimated_box_width <= frame_width - (2 * layout.horizontal_margin)
+        assert layout.horizontal_margin >= frame_width * 0.10
+
+    assert get_overlay_text_layout("9:16").font_size == 40
+    assert get_overlay_text_layout("1:1").font_size == 40
+    assert get_overlay_text_layout("16:9").font_size == 48
+    assert get_overlay_text_layout("9:16").wrap_width < (
+        get_overlay_text_layout("16:9").wrap_width
+    )
+    assert max(map(len, wrapped_lines["9:16"])) <= 20
+    assert max(map(len, wrapped_lines["1:1"])) <= 20
+
+
 if __name__ == "__main__":
+    test_overlay_layout_wraps_safely_for_all_aspect_ratios()
     test_create_and_concat_mock_clips()
     print("FFmpeg composer tests: SUCCESS")

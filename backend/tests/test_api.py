@@ -27,6 +27,18 @@ def test_health() -> None:
     assert response.json() == {"status": "healthy"}
 
 
+def test_local_vite_origin_is_allowed_by_cors() -> None:
+    response = client.options(
+        "/health",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
 def test_config_status_contains_only_safe_fields() -> None:
     response = client.get("/api/config/status")
 
@@ -334,6 +346,7 @@ def test_workflow_api_without_aws() -> None:
 
 if __name__ == "__main__":
     test_health()
+    test_local_vite_origin_is_allowed_by_cors()
     test_config_status_contains_only_safe_fields()
     test_plan_video_with_mock_planner()
     test_demo_render_with_mock_planner()

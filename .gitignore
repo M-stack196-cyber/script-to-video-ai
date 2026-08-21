@@ -36,3 +36,4 @@ frontend/dist/
 .aws/
 *.pem
 *.key
+frontend/.env.local
