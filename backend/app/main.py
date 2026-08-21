@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.schemas.api import (
     ConfigStatusResponse,
+    DeploymentReadinessResponse,
     CreateVideoJobRequest,
     GenerateSceneRequest,
     GenerateSceneResponse,
@@ -21,6 +22,7 @@ from app.providers.nova_sonic import (
     standard_aws_credentials_detected,
 )
 from app.services.scene_generator import generate_scene_plan
+from app.services.deployment_readiness import get_deployment_readiness
 from app.services.job_store import JobNotFoundError, get_job, list_jobs
 from app.services.video_generator import (
     get_video_generation_status,
@@ -393,6 +395,10 @@ def video_status(
 @app.get("/api/config/status", response_model=ConfigStatusResponse)
 def config_status() -> ConfigStatusResponse:
     return ConfigStatusResponse(
+        app_env=settings.normalized_app_env,
+        job_store_provider=settings.normalized_job_store_provider,
+        production_storage_ready=settings.production_storage_ready,
+        local_media_enabled=settings.local_media_enabled,
         text_model_configured=bool(settings.bedrock_text_model_id.strip()),
         video_model_configured=bool(settings.bedrock_video_model_id.strip()),
         audio_model_configured=bool(settings.bedrock_audio_model_id.strip()),
@@ -402,6 +408,14 @@ def config_status() -> ConfigStatusResponse:
         nova_sonic_sdk_available=nova_sonic_sdk_available(),
         standard_aws_credentials_detected=standard_aws_credentials_detected(),
     )
+
+
+@app.get(
+    "/api/deployment/readiness",
+    response_model=DeploymentReadinessResponse,
+)
+def deployment_readiness() -> DeploymentReadinessResponse:
+    return get_deployment_readiness()
 
 
 app.mount("/output", StaticFiles(directory=OUTPUT_ROOT), name="output")

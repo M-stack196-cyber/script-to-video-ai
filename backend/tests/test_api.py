@@ -1,10 +1,13 @@
+import asyncio
 import sys
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+import httpx
+import anyio.to_thread
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -17,11 +20,55 @@ from app.schemas.scene import Scene, ScenePlan  # noqa: E402
 from app.services import job_store, media_paths  # noqa: E402
 
 
-client = TestClient(app)
+async def _run_sync_inline(function, *args, **_kwargs):
+    """Test-only replacement for AnyIO thread dispatch in restricted sandboxes."""
+    return function(*args)
+
+
+anyio.to_thread.run_sync = _run_sync_inline
+
+
+class LocalASGITestClient:
+    """Synchronous facade over HTTPX's in-process ASGI transport.
+
+    Starlette's thread-based TestClient portal does not wake reliably with the
+    pinned AnyIO stack in restricted test environments. Running the ASGI app on
+    the calling thread avoids sockets, network access, and background threads.
+    """
+
+    def request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        async def send() -> httpx.Response:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as async_client:
+                return await async_client.request(method, path, **kwargs)
+
+        return asyncio.run(send())
+
+    def get(self, path: str, **kwargs) -> httpx.Response:
+        return self.request("GET", path, **kwargs)
+
+    def post(self, path: str, **kwargs) -> httpx.Response:
+        return self.request("POST", path, **kwargs)
+
+    def options(self, path: str, **kwargs) -> httpx.Response:
+        return self.request("OPTIONS", path, **kwargs)
+
+
+client = LocalASGITestClient()
+
+
+def _assert_fast_get(path: str):
+    started = time.monotonic()
+    response = client.get(path)
+    assert time.monotonic() - started < 2.0
+    return response
 
 
 def test_health() -> None:
-    response = client.get("/health")
+    response = _assert_fast_get("/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "healthy"}
@@ -40,10 +87,14 @@ def test_local_vite_origin_is_allowed_by_cors() -> None:
 
 
 def test_config_status_contains_only_safe_fields() -> None:
-    response = client.get("/api/config/status")
+    response = _assert_fast_get("/api/config/status")
 
     assert response.status_code == 200
     assert set(response.json()) == {
+        "app_env",
+        "job_store_provider",
+        "production_storage_ready",
+        "local_media_enabled",
         "text_model_configured",
         "video_model_configured",
         "audio_model_configured",
@@ -53,6 +104,100 @@ def test_config_status_contains_only_safe_fields() -> None:
         "nova_sonic_sdk_available",
         "standard_aws_credentials_detected",
     }
+
+
+def test_deployment_readiness_development_state() -> None:
+    original = (
+        settings.app_env,
+        settings.job_store_provider,
+        settings.use_mock_scene_planner,
+    )
+    settings.app_env = "development"
+    settings.job_store_provider = "local"
+    settings.use_mock_scene_planner = True
+    try:
+        with patch(
+            "app.services.deployment_readiness.standard_aws_credentials_detected",
+            return_value=False,
+        ):
+            response = _assert_fast_get("/api/deployment/readiness")
+    finally:
+        settings.app_env, settings.job_store_provider, settings.use_mock_scene_planner = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["app_env"] == "development"
+    assert payload["scene_planner_ready"] is True
+    assert payload["durable_job_storage_ready"] is True
+    assert payload["media_storage_ready"] is True
+
+
+def test_production_readiness_reports_local_storage_and_missing_s3() -> None:
+    original = (
+        settings.app_env,
+        settings.job_store_provider,
+        settings.public_base_url,
+        settings.s3_bucket_name,
+    )
+    settings.app_env = "production"
+    settings.job_store_provider = "local"
+    settings.public_base_url = "https://api.example.test"
+    settings.s3_bucket_name = ""
+    try:
+        with patch(
+            "app.services.deployment_readiness.standard_aws_credentials_detected",
+            return_value=False,
+        ):
+            response = client.get("/api/deployment/readiness")
+    finally:
+        (
+            settings.app_env,
+            settings.job_store_provider,
+            settings.public_base_url,
+            settings.s3_bucket_name,
+        ) = original
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ready"] is False
+    assert payload["durable_job_storage_ready"] is False
+    assert payload["media_storage_ready"] is False
+    assert payload["local_demo_available"] is False
+    assert "S3 bucket is not configured" in payload["blockers"]
+    assert "Local job storage is not durable in production" in payload["blockers"]
+
+
+def test_deployment_readiness_does_not_expose_secret_values() -> None:
+    secret = "do-not-return-this-model-or-secret-value"
+    original_model = settings.bedrock_video_model_id
+    settings.bedrock_video_model_id = secret
+    try:
+        with patch(
+            "app.services.deployment_readiness.standard_aws_credentials_detected",
+            return_value=False,
+        ):
+            response = client.get("/api/deployment/readiness")
+    finally:
+        settings.bedrock_video_model_id = original_model
+
+    assert response.status_code == 200
+    assert secret not in response.text
+
+
+def test_deployment_readiness_creates_no_clients_or_network_connections() -> None:
+    with patch("boto3.client") as boto_client, patch(
+        "socket.create_connection",
+        side_effect=AssertionError("readiness attempted a network connection"),
+    ) as create_connection, patch(
+        "urllib.request.urlopen",
+        side_effect=AssertionError("readiness attempted a URL request"),
+    ) as urlopen:
+        response = _assert_fast_get("/api/deployment/readiness")
+
+    assert response.status_code == 200
+    boto_client.assert_not_called()
+    create_connection.assert_not_called()
+    urlopen.assert_not_called()
 
 
 def test_plan_video_with_mock_planner() -> None:
@@ -348,6 +493,10 @@ if __name__ == "__main__":
     test_health()
     test_local_vite_origin_is_allowed_by_cors()
     test_config_status_contains_only_safe_fields()
+    test_deployment_readiness_development_state()
+    test_production_readiness_reports_local_storage_and_missing_s3()
+    test_deployment_readiness_does_not_expose_secret_values()
+    test_deployment_readiness_creates_no_clients_or_network_connections()
     test_plan_video_with_mock_planner()
     test_demo_render_with_mock_planner()
     test_demo_render_rejects_real_mode()

@@ -1,6 +1,7 @@
 import type {
   ConfigStatus,
   CreateWorkflowPayload,
+  DeploymentReadiness,
   VideoJobWorkflowState,
 } from "./types";
 
@@ -98,6 +99,12 @@ export function advanceWorkflowJob(
 
 export function getConfigStatus(signal?: AbortSignal): Promise<ConfigStatus> {
   return request("/api/config/status", {}, signal);
+}
+
+export function getDeploymentReadiness(
+  signal?: AbortSignal,
+): Promise<DeploymentReadiness> {
+  return request("/api/deployment/readiness", {}, signal);
 }
 
 export function resolveMediaUrl(path: string): string {

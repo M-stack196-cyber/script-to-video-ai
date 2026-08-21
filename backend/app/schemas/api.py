@@ -34,6 +34,10 @@ class GenerateSceneResponse(BaseModel):
 
 
 class ConfigStatusResponse(BaseModel):
+    app_env: str
+    job_store_provider: str
+    production_storage_ready: bool
+    local_media_enabled: bool
     text_model_configured: bool
     video_model_configured: bool
     audio_model_configured: bool
@@ -42,6 +46,19 @@ class ConfigStatusResponse(BaseModel):
     narration_provider: str
     nova_sonic_sdk_available: bool
     standard_aws_credentials_detected: bool
+
+
+class DeploymentReadinessResponse(BaseModel):
+    ready: bool
+    app_env: str
+    frontend_ready: bool
+    scene_planner_ready: bool
+    video_generation_ready: bool
+    durable_job_storage_ready: bool
+    media_storage_ready: bool
+    narration_ready: bool
+    local_demo_available: bool
+    blockers: list[str]
 
 
 class MockRenderResponse(BaseModel):

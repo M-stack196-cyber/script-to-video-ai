@@ -79,6 +79,10 @@ export interface VideoJobWorkflowState {
 }
 
 export interface ConfigStatus {
+  app_env: string;
+  job_store_provider: string;
+  production_storage_ready: boolean;
+  local_media_enabled: boolean;
   text_model_configured: boolean;
   video_model_configured: boolean;
   audio_model_configured: boolean;
@@ -87,6 +91,19 @@ export interface ConfigStatus {
   narration_provider: string;
   nova_sonic_sdk_available: boolean;
   standard_aws_credentials_detected: boolean;
+}
+
+export interface DeploymentReadiness {
+  ready: boolean;
+  app_env: string;
+  frontend_ready: boolean;
+  scene_planner_ready: boolean;
+  video_generation_ready: boolean;
+  durable_job_storage_ready: boolean;
+  media_storage_ready: boolean;
+  narration_ready: boolean;
+  local_demo_available: boolean;
+  blockers: string[];
 }
 
 export interface CreateWorkflowPayload {

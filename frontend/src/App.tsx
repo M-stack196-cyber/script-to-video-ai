@@ -4,6 +4,7 @@ import {
   advanceWorkflowJob,
   createWorkflowJob,
   getConfigStatus,
+  getDeploymentReadiness,
   getWorkflowJob,
   resolveMediaUrl,
 } from "./api";
@@ -17,6 +18,7 @@ import { WorkflowProgress } from "./components/WorkflowProgress";
 import type {
   ConfigStatus,
   CreateWorkflowPayload,
+  DeploymentReadiness,
   VideoJobNextAction,
   VideoJobWorkflowState,
 } from "./types";
@@ -39,6 +41,8 @@ export default function App() {
   const [workflow, setWorkflow] = useState<VideoJobWorkflowState | null>(null);
   const [config, setConfig] = useState<ConfigStatus | null>(null);
   const [configFailed, setConfigFailed] = useState(false);
+  const [readiness, setReadiness] = useState<DeploymentReadiness | null>(null);
+  const [readinessFailed, setReadinessFailed] = useState(false);
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
   const [creating, setCreating] = useState(false);
   const [advancing, setAdvancing] = useState(false);
@@ -58,6 +62,21 @@ export default function App() {
         if (requestError instanceof DOMException && requestError.name === "AbortError") return;
         setConfigFailed(true);
         setBackendConnected(false);
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getDeploymentReadiness(controller.signal)
+      .then((result) => {
+        setReadiness(result);
+        setReadinessFailed(false);
+        setBackendConnected(true);
+      })
+      .catch((requestError: unknown) => {
+        if (requestError instanceof DOMException && requestError.name === "AbortError") return;
+        setReadinessFailed(true);
       });
     return () => controller.abort();
   }, []);
@@ -142,12 +161,19 @@ export default function App() {
       <Header
         backendConnected={backendConnected}
         demoUrl={resolveMediaUrl("/demo")}
+        localDemoAvailable={readiness?.local_demo_available ?? false}
+        appEnv={readiness?.app_env ?? config?.app_env ?? null}
         hasJob={Boolean(workflow)}
         onNewVideo={handleNewVideo}
       />
 
       <main>
-        <ConfigNotice config={config} loadFailed={configFailed} />
+        <ConfigNotice
+          config={config}
+          loadFailed={configFailed}
+          readiness={readiness}
+          readinessFailed={readinessFailed}
+        />
         {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
 
         <div className="studio-grid">

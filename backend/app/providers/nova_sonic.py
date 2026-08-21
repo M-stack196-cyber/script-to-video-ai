@@ -6,7 +6,6 @@ against the optional aws-sdk-bedrock-runtime package and its current event API.
 
 from __future__ import annotations
 
-import configparser
 import importlib
 import importlib.util
 import os
@@ -39,8 +38,14 @@ def _load_bedrock_runtime_sdk() -> ModuleType:
 
 
 def standard_aws_credentials_detected() -> bool:
-    """Detect configured standard credentials without network/metadata requests."""
+    """Detect explicit credential configuration without I/O or provider refresh.
+
+    This is intentionally only a readiness indicator. It never invokes an AWS
+    credential provider chain, reads credential files, or contacts metadata.
+    """
     if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_SECRET_ACCESS_KEY"):
+        return True
+    if os.getenv("AWS_PROFILE") or os.getenv("AWS_DEFAULT_PROFILE"):
         return True
     if os.getenv("AWS_ROLE_ARN") and os.getenv("AWS_WEB_IDENTITY_TOKEN_FILE"):
         return True
@@ -49,20 +54,7 @@ def standard_aws_credentials_detected() -> bool:
     ):
         return True
 
-    credentials_file = Path(
-        os.getenv("AWS_SHARED_CREDENTIALS_FILE", "~/.aws/credentials")
-    ).expanduser()
-    profile = os.getenv("AWS_PROFILE", "default")
-    parser = configparser.RawConfigParser()
-    try:
-        if not credentials_file.is_file():
-            return False
-        parser.read(credentials_file, encoding="utf-8")
-        return parser.has_option(profile, "aws_access_key_id") and parser.has_option(
-            profile, "aws_secret_access_key"
-        )
-    except (OSError, configparser.Error):
-        return False
+    return False
 
 
 def _collect_pcm_chunks(chunks: Iterable[bytes]) -> bytes:

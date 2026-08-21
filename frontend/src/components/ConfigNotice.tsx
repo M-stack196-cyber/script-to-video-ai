@@ -1,16 +1,33 @@
-import type { ConfigStatus } from "../types";
+import type { ConfigStatus, DeploymentReadiness } from "../types";
 
 interface ConfigNoticeProps {
   config: ConfigStatus | null;
   loadFailed: boolean;
+  readiness: DeploymentReadiness | null;
+  readinessFailed: boolean;
 }
 
-export function ConfigNotice({ config, loadFailed }: ConfigNoticeProps) {
+export function ConfigNotice({
+  config,
+  loadFailed,
+  readiness,
+  readinessFailed,
+}: ConfigNoticeProps) {
   const notices: string[] = [];
-  if (loadFailed) notices.push("Backend readiness could not be checked. You can still edit your script.");
+  if (loadFailed) notices.push("Backend configuration could not be checked. You can still edit your script.");
+  if (readiness?.app_env === "production" && !readiness.ready) {
+    notices.push("Backend production setup incomplete");
+    notices.push(...readiness.blockers);
+  } else if (readinessFailed) {
+    notices.push("Deployment readiness is unavailable; the page remains usable.");
+  }
   if (config) {
     if (!config.s3_configured) {
-      notices.push("AI video generation is not configured yet. Local demo remains available.");
+      notices.push(
+        config.local_media_enabled
+          ? "AI video generation is not configured yet."
+          : "AI video generation is not configured yet; local media is disabled.",
+      );
     }
     if (!config.video_model_configured) notices.push("Nova Reel model is not configured.");
     if (config.narration_provider === "local") notices.push("Local narration fallback is active.");
