@@ -167,8 +167,13 @@ def test_job_api_without_aws() -> None:
         unknown_download = client.post("/api/jobs/unknown-job/download-video")
         assert unknown_download.status_code == 404
 
+        unknown_compose = client.post("/api/jobs/unknown-job/compose")
+        assert unknown_compose.status_code == 404
+
         invalid_download = client.post(f'/api/jobs/{job["job_id"]}/download-video')
         assert invalid_download.status_code == 409
+        invalid_compose = client.post(f'/api/jobs/{job["job_id"]}/compose')
+        assert invalid_compose.status_code == 409
 
         stored_job = job_store.get_job(job["job_id"])
         stored_job.status = VideoJobStatus.VIDEO_READY
@@ -196,6 +201,33 @@ def test_job_api_without_aws() -> None:
         assert downloaded_job["status"] == "video_ready"
         assert downloaded_job["scenes"][0]["video_downloaded"] is True
         assert not Path(downloaded_job["scenes"][0]["local_video_path"]).is_absolute()
+
+        def mocked_media(_first, destination: Path, *_rest) -> Path:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(b"mock-composed-media")
+            return destination
+
+        with patch(
+            "app.workflows.ai_video_workflow.normalize_video_clip",
+            side_effect=mocked_media,
+        ), patch(
+            "app.workflows.ai_video_workflow.generate_local_narration",
+            side_effect=mocked_media,
+        ), patch(
+            "app.workflows.ai_video_workflow.mux_scene_narration",
+            side_effect=lambda _video, _audio, destination, _duration: mocked_media(
+                None, destination
+            ),
+        ), patch(
+            "app.workflows.ai_video_workflow.concat_production_scenes",
+            side_effect=lambda _scenes, destination: mocked_media(None, destination),
+        ):
+            compose_response = client.post(f'/api/jobs/{job["job_id"]}/compose')
+        assert compose_response.status_code == 200
+        composed_job = compose_response.json()
+        assert composed_job["status"] == "completed"
+        assert composed_job["progress"] == 100
+        assert composed_job["final_video_url"].endswith("/media/final.mp4")
     finally:
         settings.s3_bucket_name = original_bucket
         media_paths.OUTPUT_ROOT = original_output_root

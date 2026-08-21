@@ -9,9 +9,19 @@ from app.config import settings
 from app.schemas.job import SceneJob, SceneJobStatus, VideoJob, VideoJobStatus
 from app.services.job_store import create_job, get_job, update_job
 from app.services.media_paths import (
+    final_video_path,
     output_relative_path,
     resolve_output_path,
+    scene_audio_path,
+    scene_composed_path,
+    scene_normalized_video_path,
     scene_video_path,
+)
+from app.services.production_composer import (
+    concat_production_scenes,
+    generate_local_narration,
+    mux_scene_narration,
+    normalize_video_clip,
 )
 from app.services.s3_video_service import (
     download_s3_video,
@@ -53,7 +63,13 @@ def create_ai_video_job(script: str, duration: int, aspect_ratio: str) -> VideoJ
         raise
 
     job.scenes = [
-        SceneJob(scene_number=scene.scene_number, prompt=scene.video_prompt)
+        SceneJob(
+            scene_number=scene.scene_number,
+            prompt=scene.video_prompt,
+            duration=scene.duration,
+            narration=scene.narration,
+            overlay_text=scene.overlay_text,
+        )
         for scene in plan.scenes
     ]
     job.status = VideoJobStatus.QUEUED
@@ -215,4 +231,81 @@ def download_completed_scene_videos(job_id: str) -> VideoJob:
     job.status = VideoJobStatus.VIDEO_READY
     job.error = None
     job.message = "All AI scene clips are downloaded locally"
+    return update_job(job)
+
+
+def compose_ai_video_job(job_id: str) -> VideoJob:
+    job = get_job(job_id)
+    if job.mode != "ai":
+        raise ValueError("Only AI jobs can be composed by the production workflow")
+    if job.status != VideoJobStatus.VIDEO_READY:
+        raise ValueError("AI video composition requires a video_ready job")
+    if not job.scenes or any(
+        scene.status != SceneJobStatus.COMPLETED for scene in job.scenes
+    ):
+        raise ValueError("All scenes must be completed before composition")
+    if any(not scene.video_downloaded for scene in job.scenes):
+        raise ValueError("All scene videos must be downloaded before composition")
+    if any(scene.duration is None or scene.duration <= 0 for scene in job.scenes):
+        raise ValueError("Every scene requires a positive duration before composition")
+    if any(not (scene.narration or "").strip() for scene in job.scenes):
+        raise ValueError("Every scene requires narration before composition")
+
+    job.status = VideoJobStatus.COMPOSING
+    job.message = "Composing final video"
+    job.error = None
+    update_job(job)
+
+    composed_paths = []
+    try:
+        for scene in sorted(job.scenes, key=lambda item: item.scene_number):
+            if not scene.local_video_path:
+                raise RuntimeError(
+                    f"Downloaded video path is missing for scene {scene.scene_number}"
+                )
+            source = resolve_output_path(scene.local_video_path)
+            if not source.is_file() or source.stat().st_size <= 0:
+                raise RuntimeError(
+                    f"Downloaded video is missing or empty for scene {scene.scene_number}"
+                )
+            duration = float(scene.duration or 0)
+            normalized = normalize_video_clip(
+                source,
+                scene_normalized_video_path(job.job_id, scene.scene_number),
+                duration,
+                job.aspect_ratio,
+            )
+            narration = generate_local_narration(
+                scene.narration or "",
+                scene_audio_path(job.job_id, scene.scene_number),
+            )
+            composed = mux_scene_narration(
+                normalized,
+                narration,
+                scene_composed_path(job.job_id, scene.scene_number),
+                duration,
+            )
+            composed_paths.append(composed)
+            job.message = f"Composed scene {scene.scene_number} of {len(job.scenes)}"
+            update_job(job)
+
+        final_path = concat_production_scenes(
+            composed_paths,
+            final_video_path(job.job_id),
+        )
+        relative_final_path = output_relative_path(final_path)
+    except Exception as exc:
+        job.status = VideoJobStatus.FAILED
+        job.message = "Video composition failed"
+        job.error = str(exc)
+        update_job(job)
+        if isinstance(exc, RuntimeError):
+            raise
+        raise RuntimeError(str(exc)) from exc
+
+    job.final_video_url = f"/output/{relative_final_path}"
+    job.status = VideoJobStatus.COMPLETED
+    job.progress = 100
+    job.message = "Video completed"
+    job.error = None
     return update_job(job)

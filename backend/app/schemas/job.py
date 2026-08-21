@@ -35,6 +35,9 @@ class SceneJobStatus(str, Enum):
 class SceneJob(BaseModel):
     scene_number: int = Field(ge=1)
     prompt: str = Field(min_length=1)
+    duration: float | None = None
+    narration: str | None = None
+    overlay_text: str | None = None
     invocation_arn: str | None = None
     status: SceneJobStatus = SceneJobStatus.QUEUED
     output_s3_uri: str | None = None

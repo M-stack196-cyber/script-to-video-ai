@@ -25,7 +25,15 @@ def test_json_job_persistence() -> None:
             script="A safely persisted local job.",
             duration=12,
             aspect_ratio="16:9",
-            scenes=[SceneJob(scene_number=1, prompt="First scene")],
+            scenes=[
+                SceneJob(
+                    scene_number=1,
+                    prompt="First scene",
+                    duration=6.0,
+                    narration="Persisted narration",
+                    overlay_text="Persisted overlay",
+                )
+            ],
         )
         job_store.create_job(job)
         stored_path = temporary_directory / "test-job.json"
@@ -35,6 +43,9 @@ def test_json_job_persistence() -> None:
         loaded = job_store.get_job("test-job")
         assert loaded == job
         assert loaded.created_at.tzinfo is not None
+        assert loaded.scenes[0].duration == 6.0
+        assert loaded.scenes[0].narration == "Persisted narration"
+        assert loaded.scenes[0].overlay_text == "Persisted overlay"
         loaded.progress = 50
         loaded.message = "Updated"
         job_store.update_job(loaded)

@@ -13,6 +13,7 @@ from app.schemas.job import SceneJobStatus, VideoJobStatus  # noqa: E402
 from app.schemas.scene import Scene, ScenePlan  # noqa: E402
 from app.services import job_store, media_paths  # noqa: E402
 from app.workflows.ai_video_workflow import (  # noqa: E402
+    compose_ai_video_job,
     create_ai_video_job,
     download_completed_scene_videos,
     refresh_video_job,
@@ -48,6 +49,11 @@ def _create_test_job():
     planner.assert_called_once()
     assert job.status == VideoJobStatus.QUEUED
     assert len(job.scenes) == 2
+    assert job.scenes[0].duration == 6.0
+    assert job.scenes[0].narration == "Narration 1"
+    assert job.scenes[0].overlay_text == "Scene 1"
+    persisted = job_store.get_job(job.job_id)
+    assert persisted.scenes[1].narration == "Narration 2"
     return job
 
 
@@ -254,6 +260,101 @@ def test_failed_download_persists_job_failure() -> None:
         shutil.rmtree(temporary_directory, ignore_errors=True)
 
 
+def _write_mock_media(_first, destination: Path, *_rest) -> Path:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(b"local-media")
+    return destination
+
+
+def test_compose_ai_video_job_success() -> None:
+    temporary_directory = Path(tempfile.mkdtemp(prefix="ai-compose-"))
+    original_directory = job_store.JOB_STORE_DIRECTORY
+    original_output_root = media_paths.OUTPUT_ROOT
+    job_store.JOB_STORE_DIRECTORY = temporary_directory / "store"
+    media_paths.OUTPUT_ROOT = temporary_directory / "output"
+    try:
+        job = _create_test_job()
+        job.status = VideoJobStatus.VIDEO_READY
+        for scene in job.scenes:
+            scene.status = SceneJobStatus.COMPLETED
+            scene.video_downloaded = True
+            source = media_paths.scene_video_path(job.job_id, scene.scene_number)
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes(b"downloaded-source")
+            scene.local_video_path = media_paths.output_relative_path(source)
+        job_store.update_job(job)
+
+        with patch(
+            "app.workflows.ai_video_workflow.normalize_video_clip",
+            side_effect=_write_mock_media,
+        ), patch(
+            "app.workflows.ai_video_workflow.generate_local_narration",
+            side_effect=_write_mock_media,
+        ), patch(
+            "app.workflows.ai_video_workflow.mux_scene_narration",
+            side_effect=lambda _video, _audio, destination, _duration: (
+                _write_mock_media(None, destination)
+            ),
+        ), patch(
+            "app.workflows.ai_video_workflow.concat_production_scenes",
+            side_effect=lambda _scenes, destination: _write_mock_media(
+                None, destination
+            ),
+        ):
+            job = compose_ai_video_job(job.job_id)
+
+        assert job.status == VideoJobStatus.COMPLETED
+        assert job.progress == 100
+        assert job.message == "Video completed"
+        assert job.final_video_url == (
+            f"/output/jobs/{job.job_id}/media/final.mp4"
+        )
+        final_path = media_paths.final_video_path(job.job_id)
+        assert final_path.is_file() and final_path.stat().st_size > 0
+    finally:
+        media_paths.OUTPUT_ROOT = original_output_root
+        job_store.JOB_STORE_DIRECTORY = original_directory
+        shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
+def test_compose_invalid_state_and_missing_clip() -> None:
+    temporary_directory = Path(tempfile.mkdtemp(prefix="ai-compose-failure-"))
+    original_directory = job_store.JOB_STORE_DIRECTORY
+    original_output_root = media_paths.OUTPUT_ROOT
+    job_store.JOB_STORE_DIRECTORY = temporary_directory / "store"
+    media_paths.OUTPUT_ROOT = temporary_directory / "output"
+    try:
+        job = _create_test_job()
+        try:
+            compose_ai_video_job(job.job_id)
+        except ValueError as exc:
+            assert "video_ready" in str(exc)
+        else:
+            raise AssertionError("Expected invalid composition state")
+
+        job.status = VideoJobStatus.VIDEO_READY
+        for scene in job.scenes:
+            scene.status = SceneJobStatus.COMPLETED
+            scene.video_downloaded = True
+            scene.local_video_path = (
+                f"jobs/{job.job_id}/media/scene_{scene.scene_number:03d}.mp4"
+            )
+        job_store.update_job(job)
+        try:
+            compose_ai_video_job(job.job_id)
+        except RuntimeError as exc:
+            assert "missing or empty" in str(exc)
+        else:
+            raise AssertionError("Expected missing downloaded clip failure")
+        persisted = job_store.get_job(job.job_id)
+        assert persisted.status == VideoJobStatus.FAILED
+        assert "missing or empty" in (persisted.error or "")
+    finally:
+        media_paths.OUTPUT_ROOT = original_output_root
+        job_store.JOB_STORE_DIRECTORY = original_directory
+        shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_ai_video_workflow_without_aws()
     test_failed_scene_fails_whole_job()
@@ -261,4 +362,6 @@ if __name__ == "__main__":
     test_missing_s3_prevents_submission()
     test_download_two_completed_scenes_and_skip_existing()
     test_failed_download_persists_job_failure()
+    test_compose_ai_video_job_success()
+    test_compose_invalid_state_and_missing_clip()
     print("AI video workflow tests: SUCCESS")

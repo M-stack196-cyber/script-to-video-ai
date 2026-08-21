@@ -26,6 +26,28 @@ def scene_video_path(job_id: str, scene_number: int) -> Path:
     return job_media_directory(job_id) / f"scene_{scene_number:03d}.mp4"
 
 
+def scene_normalized_video_path(job_id: str, scene_number: int) -> Path:
+    if scene_number < 1:
+        raise ValueError("scene_number must be greater than zero")
+    return job_media_directory(job_id) / f"scene_{scene_number:03d}_normalized.mp4"
+
+
+def scene_audio_path(job_id: str, scene_number: int) -> Path:
+    if scene_number < 1:
+        raise ValueError("scene_number must be greater than zero")
+    return job_media_directory(job_id) / f"scene_{scene_number:03d}_narration.wav"
+
+
+def scene_composed_path(job_id: str, scene_number: int) -> Path:
+    if scene_number < 1:
+        raise ValueError("scene_number must be greater than zero")
+    return job_media_directory(job_id) / f"scene_{scene_number:03d}_composed.mp4"
+
+
+def final_video_path(job_id: str) -> Path:
+    return job_media_directory(job_id) / "final.mp4"
+
+
 def output_relative_path(path: str | Path) -> str:
     candidate = Path(path).resolve()
     try:
