@@ -7,18 +7,26 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.schemas.api import (
     ConfigStatusResponse,
+    CreateVideoJobRequest,
     GenerateSceneRequest,
     GenerateSceneResponse,
     MockRenderResponse,
     VideoPlanRequest,
 )
+from app.schemas.job import VideoJob
 from app.schemas.scene import ScenePlan
 from app.services.scene_generator import generate_scene_plan
+from app.services.job_store import JobNotFoundError, get_job, list_jobs
 from app.services.video_generator import (
     get_video_generation_status,
     start_video_generation,
 )
 from app.workflows.mock_video_workflow import DEMO_OUTPUT_ROOT, render_mock_video
+from app.workflows.ai_video_workflow import (
+    create_ai_video_job,
+    refresh_video_job,
+    submit_video_scenes,
+)
 
 
 BACKEND_ROOT = DEMO_OUTPUT_ROOT.parents[1]
@@ -108,6 +116,89 @@ def demo_render(request: VideoPlanRequest) -> MockRenderResponse:
         total_duration=result["total_duration"],
         aspect_ratio=result["aspect_ratio"],
     )
+
+
+@app.post("/api/jobs", response_model=VideoJob)
+def create_video_job(request: CreateVideoJobRequest) -> VideoJob:
+    try:
+        return create_ai_video_job(
+            script=request.script,
+            duration=request.duration,
+            aspect_ratio=request.aspect_ratio,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+
+@app.get("/api/jobs", response_model=list[VideoJob])
+def recent_video_jobs(limit: int = Query(default=20, ge=1, le=100)) -> list[VideoJob]:
+    return list_jobs(limit=limit)
+
+
+@app.get("/api/jobs/{job_id}", response_model=VideoJob)
+def video_job(job_id: str) -> VideoJob:
+    try:
+        return get_job(job_id)
+    except JobNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/api/jobs/{job_id}/submit-video", response_model=VideoJob)
+def submit_video_job(job_id: str) -> VideoJob:
+    if not settings.s3_bucket_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="S3_BUCKET_NAME is required to submit AI video scenes",
+        )
+    try:
+        return submit_video_scenes(job_id)
+    except JobNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post("/api/jobs/{job_id}/refresh", response_model=VideoJob)
+def refresh_video_job_status(job_id: str) -> VideoJob:
+    try:
+        return refresh_video_job(job_id)
+    except JobNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
 
 
 @app.post("/api/video/generate-scene", response_model=GenerateSceneResponse)

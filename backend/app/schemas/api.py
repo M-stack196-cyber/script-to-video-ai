@@ -48,3 +48,7 @@ class MockRenderResponse(BaseModel):
     scene_count: int
     total_duration: int
     aspect_ratio: Literal["9:16", "16:9", "1:1"]
+
+
+class CreateVideoJobRequest(VideoPlanRequest):
+    mode: Literal["ai"] = "ai"

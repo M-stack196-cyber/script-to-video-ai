@@ -1,6 +1,8 @@
 import sys
 import shutil
+import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -10,6 +12,8 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
+from app.schemas.scene import Scene, ScenePlan  # noqa: E402
+from app.services import job_store  # noqa: E402
 
 
 client = TestClient(app)
@@ -99,10 +103,74 @@ def test_demo_render_rejects_real_mode() -> None:
     assert response.status_code == 503
 
 
+def _api_scene_plan() -> ScenePlan:
+    return ScenePlan(
+        total_duration=6,
+        aspect_ratio="16:9",
+        scenes=[
+            Scene(
+                scene_number=1,
+                start_time=0,
+                end_time=6,
+                duration=6,
+                narration="Mock narration",
+                visual_description="Mock visual",
+                video_prompt="Mock video prompt",
+                camera_movement="Static",
+                overlay_text="Mock",
+            )
+        ],
+    )
+
+
+def test_job_api_without_aws() -> None:
+    temporary_directory = Path(tempfile.mkdtemp(prefix="job-api-"))
+    original_directory = job_store.JOB_STORE_DIRECTORY
+    original_bucket = settings.s3_bucket_name
+    job_store.JOB_STORE_DIRECTORY = temporary_directory
+    settings.s3_bucket_name = ""
+    try:
+        with patch(
+            "app.workflows.ai_video_workflow.generate_scene_plan",
+            return_value=_api_scene_plan(),
+        ) as planner:
+            response = client.post(
+                "/api/jobs",
+                json={
+                    "script": "API orchestration test",
+                    "duration": 6,
+                    "aspect_ratio": "16:9",
+                    "mode": "ai",
+                },
+            )
+        planner.assert_called_once()
+        assert response.status_code == 200
+        job = response.json()
+        assert job["status"] == "queued"
+        assert len(job["scenes"]) == 1
+
+        stored_response = client.get(f'/api/jobs/{job["job_id"]}')
+        assert stored_response.status_code == 200
+        assert stored_response.json()["job_id"] == job["job_id"]
+
+        with patch("app.main.submit_video_scenes") as submit:
+            submit_response = client.post(f'/api/jobs/{job["job_id"]}/submit-video')
+        assert submit_response.status_code == 503
+        submit.assert_not_called()
+
+        unknown_response = client.get("/api/jobs/unknown-job")
+        assert unknown_response.status_code == 404
+    finally:
+        settings.s3_bucket_name = original_bucket
+        job_store.JOB_STORE_DIRECTORY = original_directory
+        shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_health()
     test_config_status_contains_only_safe_fields()
     test_plan_video_with_mock_planner()
     test_demo_render_with_mock_planner()
     test_demo_render_rejects_real_mode()
+    test_job_api_without_aws()
     print("API tests: SUCCESS")
