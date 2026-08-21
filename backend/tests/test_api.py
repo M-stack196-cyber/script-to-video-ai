@@ -241,6 +241,97 @@ def test_job_api_without_aws() -> None:
         shutil.rmtree(temporary_directory, ignore_errors=True)
 
 
+def test_workflow_api_without_aws() -> None:
+    temporary_directory = Path(tempfile.mkdtemp(prefix="workflow-api-"))
+    original_directory = job_store.JOB_STORE_DIRECTORY
+    original_bucket = settings.s3_bucket_name
+    original_video_model = settings.bedrock_video_model_id
+    job_store.JOB_STORE_DIRECTORY = temporary_directory
+    settings.s3_bucket_name = ""
+    try:
+        with patch(
+            "app.workflows.ai_video_workflow.generate_scene_plan",
+            return_value=_api_scene_plan(),
+        ), patch(
+            "app.workflows.ai_video_workflow.start_video_generation"
+        ) as paid_submission:
+            response = client.post(
+                "/api/workflow/jobs",
+                json={
+                    "script": "Workflow API test",
+                    "duration": 6,
+                    "aspect_ratio": "16:9",
+                },
+            )
+        paid_submission.assert_not_called()
+        assert response.status_code == 200
+        workflow = response.json()
+        job_id = workflow["job"]["job_id"]
+        assert workflow["next_action"] == "submit_video"
+        assert workflow["stage"] == "waiting_to_submit"
+        assert workflow["can_submit_video"] is True
+
+        state_response = client.get(f"/api/workflow/jobs/{job_id}")
+        assert state_response.status_code == 200
+        assert state_response.json()["job"]["job_id"] == job_id
+
+        unknown = client.get("/api/workflow/jobs/unknown-job")
+        assert unknown.status_code == 404
+
+        with patch(
+            "app.workflows.video_orchestrator.submit_video_scenes"
+        ) as submit:
+            missing_config = client.post(
+                f"/api/workflow/jobs/{job_id}/advance"
+            )
+        assert missing_config.status_code == 503
+        submit.assert_not_called()
+
+        settings.s3_bucket_name = "mock-bucket"
+        settings.bedrock_video_model_id = "mock-video-model"
+        submitted_job = job_store.get_job(job_id)
+        submitted_job.status = VideoJobStatus.GENERATING_VIDEO
+        submitted_job.scenes[0].status = SceneJobStatus.SUBMITTED
+        with patch(
+            "app.workflows.video_orchestrator.submit_video_scenes",
+            return_value=submitted_job,
+        ) as submit, patch(
+            "app.workflows.video_orchestrator.refresh_video_job"
+        ) as refresh:
+            advanced = client.post(f"/api/workflow/jobs/{job_id}/advance")
+        assert advanced.status_code == 200
+        assert advanced.json()["next_action"] == "refresh"
+        submit.assert_called_once_with(job_id)
+        refresh.assert_not_called()
+
+        completed_job = job_store.get_job(job_id)
+        completed_job.status = VideoJobStatus.COMPLETED
+        completed_job.progress = 100
+        job_store.update_job(completed_job)
+        with patch(
+            "app.workflows.video_orchestrator.submit_video_scenes"
+        ) as submit, patch(
+            "app.workflows.video_orchestrator.refresh_video_job"
+        ) as refresh, patch(
+            "app.workflows.video_orchestrator.download_completed_scene_videos"
+        ) as download, patch(
+            "app.workflows.video_orchestrator.compose_ai_video_job"
+        ) as compose:
+            completed = client.post(f"/api/workflow/jobs/{job_id}/advance")
+        assert completed.status_code == 200
+        assert completed.json()["next_action"] == "completed"
+        assert completed.json()["is_terminal"] is True
+        submit.assert_not_called()
+        refresh.assert_not_called()
+        download.assert_not_called()
+        compose.assert_not_called()
+    finally:
+        settings.s3_bucket_name = original_bucket
+        settings.bedrock_video_model_id = original_video_model
+        job_store.JOB_STORE_DIRECTORY = original_directory
+        shutil.rmtree(temporary_directory, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_health()
     test_config_status_contains_only_safe_fields()
@@ -248,4 +339,5 @@ if __name__ == "__main__":
     test_demo_render_with_mock_planner()
     test_demo_render_rejects_real_mode()
     test_job_api_without_aws()
+    test_workflow_api_without_aws()
     print("API tests: SUCCESS")

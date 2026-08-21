@@ -32,6 +32,26 @@ class SceneJobStatus(str, Enum):
     FAILED = "failed"
 
 
+class VideoJobNextAction(str, Enum):
+    SUBMIT_VIDEO = "submit_video"
+    REFRESH = "refresh"
+    DOWNLOAD_VIDEO = "download_video"
+    COMPOSE = "compose"
+    COMPLETED = "completed"
+    NONE = "none"
+
+
+class VideoWorkflowStage(str, Enum):
+    PLANNING = "planning"
+    WAITING_TO_SUBMIT = "waiting_to_submit"
+    GENERATING_VIDEO = "generating_video"
+    DOWNLOADING = "downloading"
+    GENERATING_AUDIO = "generating_audio"
+    COMPOSING = "composing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class SceneJob(BaseModel):
     scene_number: int = Field(ge=1)
     prompt: str = Field(min_length=1)
@@ -61,3 +81,14 @@ class VideoJob(BaseModel):
     error: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class VideoJobWorkflowState(BaseModel):
+    job: VideoJob
+    next_action: VideoJobNextAction
+    stage: VideoWorkflowStage
+    can_submit_video: bool
+    can_refresh: bool
+    can_download_video: bool
+    can_compose: bool
+    is_terminal: bool

@@ -13,7 +13,7 @@ from app.schemas.api import (
     MockRenderResponse,
     VideoPlanRequest,
 )
-from app.schemas.job import VideoJob
+from app.schemas.job import VideoJob, VideoJobNextAction, VideoJobWorkflowState
 from app.schemas.scene import ScenePlan
 from app.providers.nova_sonic import (
     nova_sonic_sdk_available,
@@ -26,6 +26,11 @@ from app.services.video_generator import (
     start_video_generation,
 )
 from app.workflows.mock_video_workflow import DEMO_OUTPUT_ROOT, render_mock_video
+from app.workflows.video_orchestrator import (
+    advance_video_job,
+    create_video_workflow_job,
+    get_job_workflow_state,
+)
 from app.workflows.ai_video_workflow import (
     compose_ai_video_job,
     create_ai_video_job,
@@ -142,6 +147,83 @@ def create_video_job(request: CreateVideoJobRequest) -> VideoJob:
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
+
+
+@app.post("/api/workflow/jobs", response_model=VideoJobWorkflowState)
+def create_workflow_video_job(request: VideoPlanRequest) -> VideoJobWorkflowState:
+    try:
+        return create_video_workflow_job(
+            script=request.script,
+            duration=request.duration,
+            aspect_ratio=request.aspect_ratio,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
+
+
+@app.get(
+    "/api/workflow/jobs/{job_id}",
+    response_model=VideoJobWorkflowState,
+)
+def workflow_video_job(job_id: str) -> VideoJobWorkflowState:
+    try:
+        return get_job_workflow_state(job_id)
+    except JobNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@app.post(
+    "/api/workflow/jobs/{job_id}/advance",
+    response_model=VideoJobWorkflowState,
+)
+def advance_workflow_video_job(job_id: str) -> VideoJobWorkflowState:
+    try:
+        current = get_job_workflow_state(job_id)
+        if (
+            current.next_action == VideoJobNextAction.SUBMIT_VIDEO
+            and not settings.s3_bucket_name.strip()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="S3_BUCKET_NAME is required to submit AI video scenes",
+            )
+        if (
+            current.next_action == VideoJobNextAction.SUBMIT_VIDEO
+            and not settings.bedrock_video_model_id.strip()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="BEDROCK_VIDEO_MODEL_ID is required to submit AI video scenes",
+            )
+        return advance_video_job(job_id)
+    except JobNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except RuntimeError as exc:
+        failure_status = (
+            status.HTTP_500_INTERNAL_SERVER_ERROR
+            if "composition" in str(exc).lower()
+            else status.HTTP_502_BAD_GATEWAY
+        )
+        raise HTTPException(status_code=failure_status, detail=str(exc)) from exc
 
 
 @app.get("/api/jobs", response_model=list[VideoJob])
