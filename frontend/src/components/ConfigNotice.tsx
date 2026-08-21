@@ -1,10 +1,11 @@
-import type { ConfigStatus, DeploymentReadiness } from "../types";
+import type { ConfigStatus, DeploymentReadiness, VideoMode } from "../types";
 
 interface ConfigNoticeProps {
   config: ConfigStatus | null;
   loadFailed: boolean;
   readiness: DeploymentReadiness | null;
   readinessFailed: boolean;
+  mode: VideoMode;
 }
 
 export function ConfigNotice({
@@ -12,16 +13,19 @@ export function ConfigNotice({
   loadFailed,
   readiness,
   readinessFailed,
+  mode,
 }: ConfigNoticeProps) {
   const notices: string[] = [];
   if (loadFailed) notices.push("Backend configuration could not be checked. You can still edit your script.");
-  if (readiness?.app_env === "production" && !readiness.ready) {
+  if (mode === "demo" && readiness?.local_demo_available) {
+    notices.push("Local Demo is available. Production AI setup is reported separately.");
+  } else if (readiness?.app_env === "production" && !readiness.ready) {
     notices.push("Backend production setup incomplete");
     notices.push(...readiness.blockers);
   } else if (readinessFailed) {
     notices.push("Deployment readiness is unavailable; the page remains usable.");
   }
-  if (config) {
+  if (config && mode === "production") {
     if (!config.s3_configured) {
       notices.push(
         config.local_media_enabled

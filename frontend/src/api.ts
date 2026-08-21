@@ -1,6 +1,7 @@
 import type {
   ConfigStatus,
   CreateWorkflowPayload,
+  DemoRenderResponse,
   DeploymentReadiness,
   VideoJobWorkflowState,
 } from "./types";
@@ -105,6 +106,21 @@ export function getDeploymentReadiness(
   signal?: AbortSignal,
 ): Promise<DeploymentReadiness> {
   return request("/api/deployment/readiness", {}, signal);
+}
+
+export function renderLocalDemo(
+  payload: CreateWorkflowPayload,
+  signal?: AbortSignal,
+): Promise<DemoRenderResponse> {
+  return request(
+    "/api/video/demo-render",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+    signal,
+  );
 }
 
 export function resolveMediaUrl(path: string): string {

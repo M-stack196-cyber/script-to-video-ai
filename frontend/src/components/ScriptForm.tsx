@@ -1,9 +1,17 @@
 import { useState, type FormEvent } from "react";
-import type { AspectRatio, CreateWorkflowPayload, VideoDuration } from "../types";
+import type {
+  AspectRatio,
+  CreateWorkflowPayload,
+  VideoDuration,
+  VideoMode,
+} from "../types";
 
 interface ScriptFormProps {
   disabled: boolean;
   locked: boolean;
+  mode: VideoMode;
+  demoAvailable: boolean;
+  onModeChange: (mode: VideoMode) => void;
   onSubmit: (payload: CreateWorkflowPayload) => Promise<void>;
 }
 
@@ -14,7 +22,14 @@ const aspectRatios: Array<{ value: AspectRatio; label: string }> = [
   { value: "1:1", label: "Square" },
 ];
 
-export function ScriptForm({ disabled, locked, onSubmit }: ScriptFormProps) {
+export function ScriptForm({
+  disabled,
+  locked,
+  mode,
+  demoAvailable,
+  onModeChange,
+  onSubmit,
+}: ScriptFormProps) {
   const [script, setScript] = useState("");
   const [duration, setDuration] = useState<VideoDuration>(12);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("16:9");
@@ -37,6 +52,41 @@ export function ScriptForm({ disabled, locked, onSubmit }: ScriptFormProps) {
       </div>
 
       <form onSubmit={handleSubmit}>
+        <fieldset className="mode-fieldset" disabled={disabled}>
+          <legend>Generation mode</legend>
+          <div className="mode-selector">
+            <label className={mode === "production" ? "selected" : ""}>
+              <input
+                type="radio"
+                name="video-mode"
+                value="production"
+                checked={mode === "production"}
+                onChange={() => onModeChange("production")}
+              />
+              <strong>AI Production</strong>
+              <span>Generate real AI video through the production workflow.</span>
+            </label>
+            <label
+              className={`${mode === "demo" ? "selected" : ""} ${!demoAvailable ? "disabled" : ""}`}
+            >
+              <input
+                type="radio"
+                name="video-mode"
+                value="demo"
+                checked={mode === "demo"}
+                disabled={!demoAvailable}
+                onChange={() => onModeChange("demo")}
+              />
+              <strong>Local Demo</strong>
+              <span>
+                {demoAvailable
+                  ? "Mock scenes, offline narration, and FFmpeg. No cloud AI video generation."
+                  : "Local demo is unavailable on this backend."}
+              </span>
+            </label>
+          </div>
+        </fieldset>
+
         <div className="field-heading">
           <label htmlFor="video-script">Video script</label>
           <span>{script.length.toLocaleString()} characters</span>
@@ -101,10 +151,16 @@ export function ScriptForm({ disabled, locked, onSubmit }: ScriptFormProps) {
           disabled={disabled || locked || !trimmedScript}
         >
           {disabled ? <span className="spinner" aria-hidden="true" /> : null}
-          {disabled ? "Planning video…" : locked ? "Video plan created" : "Plan AI Video"}
+          {disabled
+            ? mode === "demo" ? "Rendering local demo…" : "Planning video…"
+            : locked
+              ? "Video plan created"
+              : mode === "demo" ? "Generate Local Demo" : "Plan AI Video"}
         </button>
         <p className="form-footnote">
-          Planning does not start paid video generation. You’ll confirm that separately.
+          {mode === "demo"
+            ? "Local fallback only — no cloud AI video generation."
+            : "Planning does not start paid video generation. You’ll confirm that separately."}
         </p>
       </form>
     </section>

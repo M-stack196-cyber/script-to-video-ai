@@ -65,6 +65,8 @@ h1, h2, h3 { font-family: Inter, ui-sans-serif, system-ui, sans-serif; letter-sp
 .brand-mark span::after { content: ""; position: absolute; left: 4px; top: 4px; border-left: 6px solid white; border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 .demo-unavailable { max-width: 180px; color: #789095; font-size: 10px; line-height: 1.25; text-align: right; }
+.legacy-demo-link { color: #747b8c; font-size: 9px; text-decoration: none; }
+.legacy-demo-link:hover { color: #b7bdca; }
 .connection-status { display: inline-flex; align-items: center; gap: 7px; color: #b9becb; font-size: 12px; margin-right: 6px; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 12px var(--green); }
 .connection-status.offline .status-dot { background: var(--red); box-shadow: 0 0 12px var(--red); }
@@ -89,6 +91,16 @@ textarea:focus { border-color: rgba(139,123,255,.7); box-shadow: 0 0 0 3px rgba(
 textarea:disabled { opacity: .68; cursor: not-allowed; }
 fieldset { border: 0; padding: 0; margin: 22px 0 0; }
 fieldset legend { margin-bottom: 10px; }
+.mode-fieldset { margin-top: 0; margin-bottom: 22px; }
+.mode-selector { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.mode-selector label { position: relative; display: flex; min-width: 0; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(8,10,16,.58); cursor: pointer; transition: .18s ease; }
+.mode-selector label:hover { border-color: var(--line-strong); }
+.mode-selector label:focus-within { outline: 3px solid rgba(139, 123, 255, 0.48); outline-offset: 3px; }
+.mode-selector label.selected { border-color: rgba(139,123,255,.72); background: rgba(119,98,246,.13); box-shadow: inset 0 0 0 1px rgba(139,123,255,.12); }
+.mode-selector label.disabled { cursor: not-allowed; opacity: .48; }
+.mode-selector input { position: absolute; opacity: 0; pointer-events: none; }
+.mode-selector strong { font-size: 11px; }
+.mode-selector span { color: var(--muted); font-size: 8px; line-height: 1.45; }
 .segmented-control, .ratio-grid { display: grid; gap: 8px; }
 .three-up, .ratio-grid { grid-template-columns: repeat(3, 1fr); }
 .segmented-control label, .ratio-grid label { cursor: pointer; position: relative; border: 1px solid var(--line); border-radius: 11px; background: rgba(8,10,16,.58); transition: .18s ease; }
@@ -181,6 +193,9 @@ summary { color: #7f8695; font-size: 8px; cursor: pointer; }
 .result-card { margin-top: 24px; border: 1px solid rgba(93,225,163,.22); border-radius: 16px; padding: 18px; background: rgba(35,113,76,.08); }
 .success-icon { float: left; display: grid; place-items: center; width: 35px; height: 35px; margin-right: 11px; border-radius: 50%; background: rgba(93,225,163,.15); color: var(--green); }
 .result-heading-copy h2 { margin: 3px 0 16px; font-size: 18px; }
+.result-helper { clear: both; margin: 0 0 12px; color: var(--muted); font-size: 10px; line-height: 1.55; }
+.result-metadata { display: flex; flex-wrap: wrap; gap: 7px; margin: 0 0 13px; }
+.result-metadata span { padding: 5px 8px; border: 1px solid rgba(93,225,163,.18); border-radius: 999px; color: #a8cab9; font-size: 8px; }
 .result-card video { display: block; clear: both; width: 100%; max-height: 520px; border-radius: 12px; background: #000; }
 .result-actions { display: flex; gap: 9px; margin-top: 13px; }
 
@@ -211,11 +226,13 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 18px
   .app-header { min-height: auto; padding: 18px 0; align-items: flex-start; }
   .brand-lockup p, .connection-status { display: none; }
   .header-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .legacy-demo-link { display: none; }
   .button.compact { min-height: 32px; padding: 0 9px; }
   main { padding-top: 18px; }
   .panel, .workspace-panel { border-radius: 16px; }
   .creation-panel, .workspace-panel { padding: 18px; }
   .three-up, .ratio-grid { gap: 6px; }
+  .mode-selector { grid-template-columns: 1fr; }
   .ratio-grid label { flex-direction: column; gap: 5px; }
   .stage-track li { font-size: 6px; }
   .stage-node { width: 20px; height: 20px; }

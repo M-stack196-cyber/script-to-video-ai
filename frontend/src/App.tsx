@@ -6,6 +6,7 @@ import {
   getConfigStatus,
   getDeploymentReadiness,
   getWorkflowJob,
+  renderLocalDemo,
   resolveMediaUrl,
 } from "./api";
 import { ConfigNotice } from "./components/ConfigNotice";
@@ -18,9 +19,11 @@ import { WorkflowProgress } from "./components/WorkflowProgress";
 import type {
   ConfigStatus,
   CreateWorkflowPayload,
+  DemoRenderResponse,
   DeploymentReadiness,
   VideoJobNextAction,
   VideoJobWorkflowState,
+  VideoMode,
 } from "./types";
 
 const JOB_STORAGE_KEY = "script-to-video-current-job";
@@ -39,6 +42,9 @@ function errorMessage(error: unknown): string {
 
 export default function App() {
   const [workflow, setWorkflow] = useState<VideoJobWorkflowState | null>(null);
+  const [mode, setMode] = useState<VideoMode>("production");
+  const [demoResult, setDemoResult] = useState<DemoRenderResponse | null>(null);
+  const [demoRendering, setDemoRendering] = useState(false);
   const [config, setConfig] = useState<ConfigStatus | null>(null);
   const [configFailed, setConfigFailed] = useState(false);
   const [readiness, setReadiness] = useState<DeploymentReadiness | null>(null);
@@ -120,6 +126,27 @@ export default function App() {
     }
   }
 
+  async function handleDemoRender(payload: CreateWorkflowPayload) {
+    if (!readiness?.local_demo_available || demoRendering) return;
+    setDemoRendering(true);
+    setDemoResult(null);
+    setError(null);
+    try {
+      const result = await renderLocalDemo(payload);
+      setDemoResult(result);
+      setBackendConnected(true);
+    } catch (requestError) {
+      setError(errorMessage(requestError));
+    } finally {
+      setDemoRendering(false);
+    }
+  }
+
+  async function handleFormSubmit(payload: CreateWorkflowPayload) {
+    if (mode === "demo") return handleDemoRender(payload);
+    return handleCreate(payload);
+  }
+
   async function handleAdvance() {
     if (!workflow || advancing) return;
     setAdvancing(true);
@@ -139,8 +166,17 @@ export default function App() {
   function handleNewVideo() {
     localStorage.removeItem(JOB_STORAGE_KEY);
     setWorkflow(null);
+    setDemoResult(null);
+    setDemoRendering(false);
+    setMode("production");
     setError(null);
     setFormKey((current) => current + 1);
+  }
+
+  function handleModeChange(nextMode: VideoMode) {
+    if (nextMode === "demo" && !readiness?.local_demo_available) return;
+    setMode(nextMode);
+    setError(null);
   }
 
   const actionLabel = workflow ? actionLabels[workflow.next_action] : undefined;
@@ -163,7 +199,8 @@ export default function App() {
         demoUrl={resolveMediaUrl("/demo")}
         localDemoAvailable={readiness?.local_demo_available ?? false}
         appEnv={readiness?.app_env ?? config?.app_env ?? null}
-        hasJob={Boolean(workflow)}
+        onSelectDemo={() => handleModeChange("demo")}
+        hasJob={Boolean(workflow || demoResult)}
         onNewVideo={handleNewVideo}
       />
 
@@ -173,19 +210,55 @@ export default function App() {
           loadFailed={configFailed}
           readiness={readiness}
           readinessFailed={readinessFailed}
+          mode={mode}
         />
         {error && <ErrorAlert message={error} onDismiss={() => setError(null)} />}
 
         <div className="studio-grid">
           <ScriptForm
             key={formKey}
-            disabled={creating || recovering}
-            locked={Boolean(workflow)}
-            onSubmit={handleCreate}
+            disabled={mode === "demo" ? demoRendering : creating || recovering}
+            locked={mode === "production" && Boolean(workflow)}
+            mode={mode}
+            demoAvailable={readiness?.local_demo_available ?? false}
+            onModeChange={handleModeChange}
+            onSubmit={handleFormSubmit}
           />
 
           <section className="workspace-panel" aria-label="Video workflow workspace">
-            {recovering ? (
+            {mode === "demo" ? (
+              demoRendering ? (
+                <div className="empty-state" aria-live="polite">
+                  <span className="loader-orbit" aria-hidden="true" />
+                  <span className="eyebrow">Local fallback</span>
+                  <h2>Rendering local demo…</h2>
+                  <p>Generating scenes, narration, and composing the final MP4 locally.</p>
+                </div>
+              ) : demoResult ? (
+                <VideoResult
+                  videoUrl={resolveMediaUrl(demoResult.video_url)}
+                  title="Local Demo Complete"
+                  badge="LOCAL FALLBACK"
+                  helperText="This preview uses mock scene visuals and offline narration. Production AI generation uses the configured cloud video model."
+                  metadata={[
+                    `${demoResult.total_duration} seconds`,
+                    demoResult.aspect_ratio,
+                    `${demoResult.scene_count} ${demoResult.scene_count === 1 ? "scene" : "scenes"}`,
+                  ]}
+                />
+              ) : (
+                <div className="empty-state">
+                  <div className="empty-visual demo-visual" aria-hidden="true">
+                    <span className="play-triangle" />
+                    <i className="orbit orbit-one" />
+                    <i className="orbit orbit-two" />
+                  </div>
+                  <span className="eyebrow">Local fallback</span>
+                  <h2>Build an offline demo video</h2>
+                  <p>Use mock scene visuals, offline narration, and FFmpeg. No cloud AI video generation.</p>
+                </div>
+              )
+            ) : recovering ? (
               <div className="empty-state" aria-live="polite">
                 <span className="loader-orbit" aria-hidden="true" />
                 <h2>Restoring your workspace</h2>

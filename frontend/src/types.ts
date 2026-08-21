@@ -35,6 +35,7 @@ export type VideoWorkflowStage =
 
 export type AspectRatio = "9:16" | "16:9" | "1:1";
 export type VideoDuration = 6 | 12 | 18;
+export type VideoMode = "production" | "demo";
 
 export interface SceneJob {
   scene_number: number;
@@ -104,6 +105,15 @@ export interface DeploymentReadiness {
   narration_ready: boolean;
   local_demo_available: boolean;
   blockers: string[];
+}
+
+export interface DemoRenderResponse {
+  job_id: string;
+  mode: "mock";
+  video_url: string;
+  scene_count: number;
+  total_duration: number;
+  aspect_ratio: AspectRatio;
 }
 
 export interface CreateWorkflowPayload {

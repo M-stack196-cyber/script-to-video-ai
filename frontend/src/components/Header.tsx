@@ -3,6 +3,7 @@ interface HeaderProps {
   demoUrl: string;
   localDemoAvailable: boolean;
   appEnv: string | null;
+  onSelectDemo: () => void;
   hasJob: boolean;
   onNewVideo: () => void;
 }
@@ -12,6 +13,7 @@ export function Header({
   demoUrl,
   localDemoAvailable,
   appEnv,
+  onSelectDemo,
   hasJob,
   onNewVideo,
 }: HeaderProps) {
@@ -42,9 +44,16 @@ export function Header({
           {connectionLabel}
         </span>
         {localDemoAvailable ? (
-          <a className="button secondary compact" href={demoUrl} target="_blank" rel="noreferrer">
-            Local fallback demo
-          </a>
+          <>
+            <button className="button secondary compact" type="button" onClick={onSelectDemo}>
+              Local Demo
+            </button>
+            {appEnv === "development" && (
+              <a className="legacy-demo-link" href={demoUrl} target="_blank" rel="noreferrer">
+                Legacy Demo Page
+              </a>
+            )}
+          </>
         ) : appEnv === "production" ? (
           <span className="demo-unavailable" title="The FFmpeg fallback is for local development only.">
             Local demo unavailable in production
